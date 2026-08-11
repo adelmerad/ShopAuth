@@ -2,6 +2,7 @@ using AuthApiTest.Endpoints;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using OpenIddict.Validation.AspNetCore;
+using Microsoft.OpenApi.Models;
 using AuthApiTest.Data;
 using AuthApiTest.Entities;
 using AuthApiTest.Services;
@@ -95,27 +96,39 @@ builder.Services.AddOpenIddict()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
-    options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    // Flow OAuth2 "password" : le bouton Authorize de Swagger demandera
+    // username / password / client_id et obtiendra le token automatiquement.
+    options.AddSecurityDefinition("OAuth2", new OpenApiSecurityScheme
     {
-        Name = "Authorization",
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
-        Scheme = "Bearer",
-        BearerFormat = "JWT",
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Description = "Colle ton access token ici (sans le mot 'Bearer')"
+        Type = SecuritySchemeType.OAuth2,
+        Flows = new OpenApiOAuthFlows
+        {
+            Password = new OpenApiOAuthFlow
+            {
+                TokenUrl = new Uri("/connect/token", UriKind.Relative),
+                Scopes = new Dictionary<string, string>
+                {
+                    ["openid"] = "Identifiant OpenID",
+                    ["email"] = "Adresse email",
+                    ["profile"] = "Profil",
+                    ["offline_access"] = "Refresh token"
+                }
+            }
+        }
     });
-    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
-            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            new OpenApiSecurityScheme
             {
-                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                Reference = new OpenApiReference
                 {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                    Id = "Bearer"
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "OAuth2"
                 }
             },
-            Array.Empty<string>()
+            new[] { "openid", "email", "profile", "offline_access" }
         }
     });
 });
@@ -135,7 +148,12 @@ using (var scope = app.Services.CreateScope())
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(options =>
+    {
+        // Pré-remplit le client_id dans le formulaire Authorize.
+        options.OAuthClientId("postman");
+        options.OAuthScopes("openid", "email", "profile", "offline_access");
+    });
 }
 
 app.UseHttpsRedirection();
