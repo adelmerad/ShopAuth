@@ -17,6 +17,12 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 {
     options.Password.RequiredLength = 8;
     options.User.RequireUniqueEmail = true;
+
+    // Verrouillage anti-brute-force : après 5 échecs, le compte est bloqué 15 min.
+    // Les colonnes AccessFailedCount / LockoutEnd existent déjà (schéma Identity).
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.AllowedForNewUsers = true;
 })
 
 .AddEntityFrameworkStores<ApplicationDbContext>()

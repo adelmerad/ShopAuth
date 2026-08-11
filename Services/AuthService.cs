@@ -9,6 +9,7 @@ namespace AuthApiTest.Services;
 public class AuthService : IAuthService
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly ITokenService _tokenService;
     private readonly ApplicationDbContext _db;
 
@@ -23,10 +24,12 @@ public class AuthService : IAuthService
 
     public AuthService(
         UserManager<ApplicationUser> userManager,
+        SignInManager<ApplicationUser> signInManager,
         ITokenService tokenService,
         ApplicationDbContext db)
     {
         _userManager = userManager;
+        _signInManager = signInManager;
         _tokenService = tokenService;
         _db = db;
     }
@@ -45,9 +48,13 @@ public class AuthService : IAuthService
             return null;
         }
 
-        // 2. Le mot de passe est-il correct ?
-        var passwordValid = await _userManager.CheckPasswordAsync(user, request.Password);
-        if (!passwordValid)
+        // 2. Le mot de passe est-il correct ? (lockoutOnFailure: true -> compte
+        //    les échecs et verrouille le compte au bout de 5 tentatives ratées)
+        //    Un compte déjà verrouillé renvoie aussi un échec ici, sans révéler
+        //    au client la raison exacte : on reste sur un 401 uniforme.
+        var result = await _signInManager.CheckPasswordSignInAsync(
+            user, request.Password, lockoutOnFailure: true);
+        if (!result.Succeeded)
             return null;
 
         // 3. Générer le couple de tokens
