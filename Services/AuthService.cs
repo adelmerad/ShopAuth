@@ -103,6 +103,19 @@ public class AuthService : IAuthService
         if (!result.Succeeded)
             return false;
 
+        // Sécurité : le mot de passe a changé -> on invalide TOUS les refresh
+        // tokens encore actifs. Toute session basée sur un ancien token
+        // (potentiellement volé) est ainsi coupée et devra se reconnecter
+        // avec le nouveau mot de passe.
+        var activeTokens = await _db.RefreshTokens
+            .Where(rt => rt.UserId == user.Id && !rt.IsRevoked)
+            .ToListAsync();
+
+        foreach (var token in activeTokens)
+            token.IsRevoked = true;
+
+        await _db.SaveChangesAsync();
+
         // Le mot de passe initial a été changé : on lève l'obligation
         user.MustChangePassword = false;
         await _userManager.UpdateAsync(user);
