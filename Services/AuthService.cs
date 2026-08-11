@@ -12,6 +12,15 @@ public class AuthService : IAuthService
     private readonly ITokenService _tokenService;
     private readonly ApplicationDbContext _db;
 
+    // Hash "bidon" calculé UNE SEULE FOIS au chargement de la classe (static).
+    // Il sert de cible à une vérification "à vide" quand l'email est inconnu,
+    // pour que le temps de réponse soit identique à celui d'un mot de passe
+    // erroné. Sans lui, un email inexistant répondrait plus vite qu'un email
+    // existant -> énumération des comptes par mesure du temps (timing attack).
+    private static readonly string _dummyPasswordHash =
+        new PasswordHasher<ApplicationUser>()
+            .HashPassword(new ApplicationUser(), "timing-attack-dummy-password");
+
     public AuthService(
         UserManager<ApplicationUser> userManager,
         ITokenService tokenService,
@@ -27,7 +36,14 @@ public class AuthService : IAuthService
         // 1. L'utilisateur existe-t-il ?
         var user = await _userManager.FindByEmailAsync(request.Email);
         if (user is null)
+        {
+            // Email inconnu : on lance quand même une vérification de hash "à vide"
+            // pour consommer le même temps CPU qu'un vrai mot de passe erroné.
+            // Les deux 401 deviennent ainsi indiscernables au chronomètre.
+            _userManager.PasswordHasher.VerifyHashedPassword(
+                new ApplicationUser(), _dummyPasswordHash, request.Password);
             return null;
+        }
 
         // 2. Le mot de passe est-il correct ?
         var passwordValid = await _userManager.CheckPasswordAsync(user, request.Password);
