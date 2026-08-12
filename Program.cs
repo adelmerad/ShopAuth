@@ -137,6 +137,17 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
 builder.Services.AddAuthorization();
+
+// Autorise le Swagger de ShopApi (origine http://localhost:5050) à appeler
+// /connect/token depuis le navigateur (requête cross-origin).
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("SwaggerClients", policy =>
+        policy.WithOrigins("http://localhost:5050")
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -159,6 +170,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors("SwaggerClients");
 
 app.UseAuthentication();
 app.UseAuthorization();
