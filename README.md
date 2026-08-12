@@ -11,7 +11,7 @@ Parti d'une API JWT « maison », le projet a évolué en véritable serveur d'a
 - ASP.NET Core Identity (`ApplicationUser` personnalisé)
 - Entity Framework Core 8 — Code-First + Migrations
 - SQL Server 2022 (Docker)
-- Swagger / OpenAPI (bouton Authorize câblé sur le flow OAuth2 *password*)
+- Swagger / OpenAPI (bouton Authorize câblé sur les flows *authorization code + PKCE* et *password*)
 
 ## Renforcements de sécurité
 
@@ -70,7 +70,7 @@ Swagger est disponible sur `/swagger` en environnement Development.
 Au démarrage, `DbSeeder` crée (idempotent) :
 
 - **Utilisateur de test** : `test@entreprise.com` / `MotDePasseInitial123!` (`MustChangePassword: true`)
-- **Client OpenIddict** public `postman` (flows *password* + *refresh_token*)
+- **Client OpenIddict** public `postman` (flows *authorization code* + PKCE, *password*, *refresh_token*)
 - **Scope d'API** `shop_api` (dont la *resource* devient l'`aud` des tokens destinés à ShopApi)
 
 ## Obtenir un token (OAuth2 *password grant*)
@@ -89,11 +89,17 @@ Réponse : `access_token` (JWT signé RS256), `id_token`, `refresh_token`.
 
 Le plus simple : **Swagger → Authorize 🔒** → saisir username/password → cocher les scopes voulus.
 
+## Login interactif (Authorization Code + PKCE)
+
+Le vrai flow SSO : dans Swagger, **Authorize → `authorization_code`** redirige le navigateur vers la page `/login` du serveur (l'app cliente ne voit **jamais** le mot de passe), puis renvoie un `code` échangé — avec **PKCE** — contre les tokens. C'est le mécanisme de « Se connecter avec Google/Microsoft ».
+
 ## Endpoints principaux
 
 | Méthode | Route | Rôle |
 |---|---|---|
-| POST | `/connect/token` | Émission des tokens (*password* + *refresh_token*) |
+| POST | `/connect/token` | Émission des tokens (*authorization_code*, *password*, *refresh_token*) |
+| GET | `/connect/authorize` | Autorisation interactive (Authorization Code + PKCE) |
+| GET/POST | `/login` | Page de connexion (formulaire) |
 | GET | `/.well-known/openid-configuration` | Découverte OIDC |
 | GET | `/.well-known/jwks` | Clés publiques de signature |
 
@@ -113,7 +119,8 @@ Une API tierce (**ShopApi**) valide les tokens émis par ce serveur : elle récu
 - [x] Renforcements sécurité (timing, lockout, rotation, révocation)
 - [x] Serveur OpenIddict — *password grant* (Phase 1)
 - [x] Resource server : ShopApi valide les tokens (Phase 3)
-- [ ] Authorization Code + PKCE avec page de login / consentement (Phase 2)
+- [x] Authorization Code + PKCE avec page de login (Phase 2) — consentement auto (implicite)
+- [ ] Écran de consentement explicite + protection anti-CSRF sur `/login`
 - [ ] Register + rôles (role claims)
 - [ ] Retrait de l'ancien système custom `/api/auth/*`
 
