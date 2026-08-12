@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Security.Claims;
 using AuthApiTest.Entities;
 using Microsoft.AspNetCore;
@@ -18,7 +19,8 @@ public static class ConnectEndpoints
         app.MapPost("/connect/token", async (
             HttpContext httpContext,
             UserManager<ApplicationUser> userManager,
-            SignInManager<ApplicationUser> signInManager) =>
+            SignInManager<ApplicationUser> signInManager,
+            IOpenIddictScopeManager scopeManager) =>
         {
             // OpenIddict a déjà validé la requête (client_id, grant_type...) ;
             // on récupère ses paramètres normalisés.
@@ -39,6 +41,8 @@ public static class ConnectEndpoints
                     return Forbid("Identifiants invalides ou compte verrouillé.");
 
                 var principal = CreatePrincipal(user, request.GetScopes());
+                // Résout les audiences (aud) à partir des scopes demandés.
+                principal.SetResources(await GetResourcesAsync(scopeManager, request.GetScopes()));
                 return Results.SignIn(principal, null,
                     OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
             }
@@ -57,12 +61,23 @@ public static class ConnectEndpoints
                     return Forbid("Le refresh token n'est plus valide.");
 
                 var principal = CreatePrincipal(user, auth.Principal!.GetScopes());
+                principal.SetResources(await GetResourcesAsync(scopeManager, auth.Principal!.GetScopes()));
                 return Results.SignIn(principal, null,
                     OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
             }
 
             return Forbid("Type de grant non supporté.");
         });
+    }
+
+    // Résout les ressources (audiences) associées aux scopes demandés.
+    private static async Task<List<string>> GetResourcesAsync(
+        IOpenIddictScopeManager scopeManager, IEnumerable<string> scopes)
+    {
+        var resources = new List<string>();
+        await foreach (var resource in scopeManager.ListResourcesAsync(scopes.ToImmutableArray()))
+            resources.Add(resource);
+        return resources;
     }
 
     // Construit l'identité (claims + scopes + destinations) à partir de l'utilisateur.

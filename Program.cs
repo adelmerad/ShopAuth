@@ -60,7 +60,7 @@ builder.Services.AddOpenIddict()
                .AllowRefreshTokenFlow();
 
         // Scopes que le serveur accepte (openid + offline_access sont natifs).
-        options.RegisterScopes(Scopes.Email, Scopes.Profile);
+        options.RegisterScopes(Scopes.Email, Scopes.Profile, "shop_api");
 
         // Durées de vie (on garde nos choix : access court, refresh long)
         options.SetAccessTokenLifetime(TimeSpan.FromMinutes(15));
@@ -111,7 +111,8 @@ builder.Services.AddSwaggerGen(options =>
                     ["openid"] = "Identifiant OpenID",
                     ["email"] = "Adresse email",
                     ["profile"] = "Profil",
-                    ["offline_access"] = "Refresh token"
+                    ["offline_access"] = "Refresh token",
+                    ["shop_api"] = "Accès à ShopApi"
                 }
             }
         }
@@ -141,6 +142,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     await DbSeeder.SeedAsync(scope.ServiceProvider);
+    await DbSeeder.SeedApiScopeAsync(scope.ServiceProvider);
     await DbSeeder.SeedOpenIddictClientAsync(scope.ServiceProvider);
 }
 
@@ -152,7 +154,7 @@ if (app.Environment.IsDevelopment())
     {
         // Pré-remplit le client_id dans le formulaire Authorize.
         options.OAuthClientId("postman");
-        options.OAuthScopes("openid", "email", "profile", "offline_access");
+        options.OAuthScopes("openid", "email", "profile", "offline_access", "shop_api");
     });
 }
 

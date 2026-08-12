@@ -60,8 +60,29 @@ public static class DbSeeder
 
                 // Scopes que ce client peut demander
                 Permissions.Scopes.Email,
-                Permissions.Scopes.Profile
+                Permissions.Scopes.Profile,
+                Permissions.Prefixes.Scope + "shop_api"
             }
+        });
+    }
+
+    // Enregistre le scope d'API "shop_api" (idempotent).
+    // Sa "resource" devient l'audience (aud) portée par les access tokens,
+    // que ShopApi vérifiera pour n'accepter que les tokens qui lui sont destinés.
+    public static async Task SeedApiScopeAsync(IServiceProvider services)
+    {
+        var scopeManager = services.GetRequiredService<IOpenIddictScopeManager>();
+
+        const string scopeName = "shop_api";
+
+        if (await scopeManager.FindByNameAsync(scopeName) is not null)
+            return;
+
+        await scopeManager.CreateAsync(new OpenIddictScopeDescriptor
+        {
+            Name = scopeName,
+            DisplayName = "Accès à ShopApi",
+            Resources = { "shop_api" }   // -> devient l'aud du token
         });
     }
 }
