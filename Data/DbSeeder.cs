@@ -51,8 +51,12 @@ public static class DbSeeder
             ConsentType = ConsentTypes.Implicit,      // auto-approuve (pas d'écran de consentement)
             DisplayName = "Client de test (Postman / Swagger)",
 
-            // Où OpenIddict a le droit de renvoyer après login (page oauth2-redirect de Swagger).
-            RedirectUris = { new Uri("http://localhost:5124/swagger/oauth2-redirect.html") },
+            // Où OpenIddict a le droit de renvoyer après login (Swagger + notre SPA).
+            RedirectUris =
+            {
+                new Uri("http://localhost:5124/swagger/oauth2-redirect.html"),
+                new Uri("http://localhost:5050/app")
+            },
 
             Permissions =
             {
