@@ -14,6 +14,42 @@ namespace AuthApiTest.Endpoints;
 // Endpoint OAuth2 standard émis par OpenIddict : POST /connect/token
 public static class ConnectEndpoints
 {
+    // Formulaire de connexion (page servie par GET /login).
+    private const string LoginPageHtml = """
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion — AuthApiTest</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:#f4f6f9; display:grid; place-items:center; min-height:100vh; margin:0; }
+    .card { background:#fff; padding:32px; border-radius:14px; box-shadow:0 6px 24px rgba(20,25,40,.08); width:320px; }
+    h1 { font-size:20px; margin:0 0 4px; }
+    p.sub { color:#5a6472; margin:0 0 20px; font-size:14px; }
+    label { display:block; font-size:13px; color:#333; margin-bottom:6px; }
+    input { width:100%; padding:10px; margin-bottom:14px; border:1px solid #d5dbe6; border-radius:8px; box-sizing:border-box; font-size:14px; }
+    button { width:100%; padding:11px; background:#2f56d9; color:#fff; border:0; border-radius:8px; font-size:15px; cursor:pointer; }
+    button:hover { background:#2848b8; }
+    .err { color:#c0293b; background:#fdeaec; padding:8px 10px; border-radius:8px; font-size:13px; margin:0 0 14px; }
+  </style>
+</head>
+<body>
+  <form class="card" method="post" action="/login">
+    <h1>Connexion</h1>
+    <p class="sub">Serveur d'authentification</p>
+    __ERROR__
+    <input type="hidden" name="returnUrl" value="__RETURN_URL__">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required autofocus>
+    <label for="password">Mot de passe</label>
+    <input id="password" name="password" type="password" required>
+    <button type="submit">Se connecter</button>
+  </form>
+</body>
+</html>
+""";
+
     public static void MapConnectEndpoints(this WebApplication app)
     {
         app.MapPost("/connect/token", async (
@@ -47,18 +83,18 @@ public static class ConnectEndpoints
                     OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
             }
 
-            // ----- Grant type : refresh_token -----
-            if (request.IsRefreshTokenGrantType())
+            // ----- Grant types : authorization_code + refresh_token -----
+            // Dans les deux cas, l'identité est déjà encodée (dans le code ou dans
+            // le refresh token) : OpenIddict la décode via son schéma serveur.
+            if (request.IsAuthorizationCodeGrantType() || request.IsRefreshTokenGrantType())
             {
-                // Le principal est encodé dans le refresh token : OpenIddict le décode
-                // pour nous quand on authentifie sur son schéma serveur.
                 var auth = await httpContext.AuthenticateAsync(
                     OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 
                 var userId = auth.Principal?.GetClaim(Claims.Subject);
                 var user = userId is null ? null : await userManager.FindByIdAsync(userId);
                 if (user is null)
-                    return Forbid("Le refresh token n'est plus valide.");
+                    return Forbid("Le code ou le refresh token n'est plus valide.");
 
                 var principal = CreatePrincipal(user, auth.Principal!.GetScopes());
                 principal.SetResources(await GetResourcesAsync(scopeManager, auth.Principal!.GetScopes()));
@@ -67,6 +103,71 @@ public static class ConnectEndpoints
             }
 
             return Forbid("Type de grant non supporté.");
+        });
+
+        // ----- /connect/authorize : point d'entrée du login interactif -----
+        app.MapGet("/connect/authorize", async (
+            HttpContext httpContext,
+            UserManager<ApplicationUser> userManager,
+            IOpenIddictScopeManager scopeManager) =>
+        {
+            var request = httpContext.GetOpenIddictServerRequest()
+                ?? throw new InvalidOperationException("Requête OpenIddict introuvable.");
+
+            // L'utilisateur a-t-il déjà une session (cookie) ?
+            var result = await httpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+            if (!result.Succeeded)
+            {
+                // Non connecté -> vers la page de login, en mémorisant l'URL d'autorisation.
+                var returnUrl = httpContext.Request.PathBase + httpContext.Request.Path + httpContext.Request.QueryString;
+                return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}");
+            }
+
+            // Connecté -> on émet le code d'autorisation (OpenIddict redirige vers le client).
+            var user = await userManager.GetUserAsync(result.Principal!)
+                ?? throw new InvalidOperationException("Utilisateur introuvable.");
+
+            var principal = CreatePrincipal(user, request.GetScopes());
+            principal.SetResources(await GetResourcesAsync(scopeManager, request.GetScopes()));
+            return Results.SignIn(principal, null,
+                OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+        });
+
+        // ----- Page de login (formulaire HTML minimal) -----
+        app.MapGet("/login", (string? returnUrl, bool? error) =>
+        {
+            var url = System.Net.WebUtility.HtmlEncode(returnUrl ?? "/");
+            var errorHtml = error == true
+                ? "<p class=\"err\">Identifiants invalides ou compte verrouillé.</p>"
+                : "";
+            var html = LoginPageHtml
+                .Replace("__RETURN_URL__", url)
+                .Replace("__ERROR__", errorHtml);
+            return Results.Content(html, "text/html");
+        });
+
+        app.MapPost("/login", async (
+            HttpContext httpContext,
+            UserManager<ApplicationUser> userManager,
+            SignInManager<ApplicationUser> signInManager) =>
+        {
+            var form = await httpContext.Request.ReadFormAsync();
+            var email = form["email"].ToString();
+            var password = form["password"].ToString();
+            var returnUrl = form["returnUrl"].ToString();
+            if (string.IsNullOrWhiteSpace(returnUrl)) returnUrl = "/";
+
+            var user = await userManager.FindByEmailAsync(email);
+            if (user is not null)
+            {
+                // Pose le cookie de session ET applique le verrouillage (anti-brute-force).
+                var result = await signInManager.PasswordSignInAsync(
+                    user, password, isPersistent: false, lockoutOnFailure: true);
+                if (result.Succeeded)
+                    return Results.Redirect(returnUrl);
+            }
+
+            return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}&error=true");
         });
     }
 

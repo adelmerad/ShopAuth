@@ -33,6 +33,14 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
+
+// Cookie de session pour le login interactif (flow authorization code) :
+// quand /connect/authorize a besoin d'un utilisateur connecté, il redirige ici.
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.LoginPath = "/login";
+});
+
 // --- Authentification : on valide désormais les tokens émis par OpenIddict ---
 builder.Services.AddAuthentication(options =>
 {
@@ -52,12 +60,15 @@ builder.Services.AddOpenIddict()
     // 2) SERVER : émet les tokens
     .AddServer(options =>
     {
-        // Endpoint OAuth2 standard pour obtenir un token
+        // Endpoints OAuth2 : token + autorisation (login interactif)
         options.SetTokenEndpointUris("connect/token");
+        options.SetAuthorizationEndpointUris("connect/authorize");
 
-        // Flows autorisés en Phase 1 : password + refresh token
+        // Flows autorisés : password + refresh + authorization code (avec PKCE)
         options.AllowPasswordFlow()
-               .AllowRefreshTokenFlow();
+               .AllowRefreshTokenFlow()
+               .AllowAuthorizationCodeFlow()
+               .RequireProofKeyForCodeExchange();
 
         // Scopes que le serveur accepte (openid + offline_access sont natifs).
         options.RegisterScopes(Scopes.Email, Scopes.Profile, "shop_api");
@@ -83,6 +94,7 @@ builder.Services.AddOpenIddict()
         // et on autorise HTTP en dev (sinon OpenIddict exige HTTPS).
         options.UseAspNetCore()
                .EnableTokenEndpointPassthrough()
+               .EnableAuthorizationEndpointPassthrough()
                .DisableTransportSecurityRequirement();
     })
 
@@ -103,6 +115,21 @@ builder.Services.AddSwaggerGen(options =>
         Type = SecuritySchemeType.OAuth2,
         Flows = new OpenApiOAuthFlows
         {
+            // Flow interactif (Phase 2) : redirige vers la page de login + PKCE.
+            AuthorizationCode = new OpenApiOAuthFlow
+            {
+                AuthorizationUrl = new Uri("/connect/authorize", UriKind.Relative),
+                TokenUrl = new Uri("/connect/token", UriKind.Relative),
+                Scopes = new Dictionary<string, string>
+                {
+                    ["openid"] = "Identifiant OpenID",
+                    ["email"] = "Adresse email",
+                    ["profile"] = "Profil",
+                    ["offline_access"] = "Refresh token",
+                    ["shop_api"] = "Accès à ShopApi"
+                }
+            },
+            // Flow direct (Phase 1) : username / password.
             Password = new OpenApiOAuthFlow
             {
                 TokenUrl = new Uri("/connect/token", UriKind.Relative),
@@ -166,6 +193,8 @@ if (app.Environment.IsDevelopment())
         // Pré-remplit le client_id dans le formulaire Authorize.
         options.OAuthClientId("postman");
         options.OAuthScopes("openid", "email", "profile", "offline_access", "shop_api");
+        // PKCE pour le flow authorization code (obligatoire côté serveur).
+        options.OAuthUsePkce();
     });
 }
 

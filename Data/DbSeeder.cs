@@ -48,15 +48,25 @@ public static class DbSeeder
         {
             ClientId = clientId,
             ClientType = ClientTypes.Public,          // client public : pas de secret
+            ConsentType = ConsentTypes.Implicit,      // auto-approuve (pas d'écran de consentement)
             DisplayName = "Client de test (Postman / Swagger)",
+
+            // Où OpenIddict a le droit de renvoyer après login (page oauth2-redirect de Swagger).
+            RedirectUris = { new Uri("http://localhost:5124/swagger/oauth2-redirect.html") },
+
             Permissions =
             {
-                // Endpoint autorisé
+                // Endpoints autorisés
                 Permissions.Endpoints.Token,
+                Permissions.Endpoints.Authorization,
 
                 // Flows autorisés
                 Permissions.GrantTypes.Password,
+                Permissions.GrantTypes.AuthorizationCode,
                 Permissions.GrantTypes.RefreshToken,
+
+                // Type de réponse (code) pour le flow authorization code
+                Permissions.ResponseTypes.Code,
 
                 // Scopes que ce client peut demander
                 Permissions.Scopes.Email,
