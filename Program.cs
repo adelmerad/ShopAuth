@@ -39,7 +39,7 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.LoginPath = "/login";
-    options.ExpireTimeSpan = TimeSpan.FromMinutes(30); // session d'auth courte
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(10); // session d'auth courte (10 min)
     options.SlidingExpiration = false;                 // expiration FERME
 });
 
