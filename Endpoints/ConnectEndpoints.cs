@@ -4,6 +4,7 @@ using AuthApiTest.Entities;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
@@ -116,10 +117,21 @@ public static class ConnectEndpoints
 
             // L'utilisateur a-t-il déjà une session (cookie) ?
             var result = await httpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
-            if (!result.Succeeded)
+
+            // Forcer la page de login si : pas de session, OU le client demande prompt=login.
+            if (!result.Succeeded || request.HasPrompt(Prompts.Login))
             {
-                // Non connecté -> vers la page de login, en mémorisant l'URL d'autorisation.
-                var returnUrl = httpContext.Request.PathBase + httpContext.Request.Path + httpContext.Request.QueryString;
+                // prompt=login : on ferme la session en cours pour forcer une vraie
+                // ré-authentification, et on retire "prompt" de l'URL de retour (sinon boucle).
+                if (result.Succeeded)
+                    await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+
+                var parameters = httpContext.Request.Query
+                    .Where(p => p.Key != Parameters.Prompt)
+                    .ToDictionary(p => p.Key, p => (string?)p.Value.ToString());
+                var returnUrl = QueryHelpers.AddQueryString(
+                    httpContext.Request.PathBase + httpContext.Request.Path, parameters);
+
                 return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}");
             }
 
