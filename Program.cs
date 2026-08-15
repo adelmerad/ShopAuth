@@ -5,7 +5,6 @@ using OpenIddict.Validation.AspNetCore;
 using Microsoft.OpenApi.Models;
 using AuthApiTest.Data;
 using AuthApiTest.Entities;
-using AuthApiTest.Services;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -162,9 +161,6 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 });
-builder.Services.AddScoped<ITokenService, TokenService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
-
 builder.Services.AddAuthorization();
 
 // Autorise le Swagger de ShopApi (origine http://localhost:5050) à appeler
@@ -207,7 +203,6 @@ app.UseCors("SwaggerClients");
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapAuthEndpoints();
 app.MapConnectEndpoints();
 
 app.Run();

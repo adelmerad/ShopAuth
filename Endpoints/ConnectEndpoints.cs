@@ -15,6 +15,13 @@ namespace AuthApiTest.Endpoints;
 // Endpoint OAuth2 standard émis par OpenIddict : POST /connect/token
 public static class ConnectEndpoints
 {
+    // Hash "bidon" pré-calculé une seule fois : sert à égaliser le temps de
+    // réponse quand l'email est inconnu (anti-énumération par timing), sur
+    // /connect/token ET /login.
+    private static readonly string DummyPasswordHash =
+        new PasswordHasher<ApplicationUser>()
+            .HashPassword(new ApplicationUser(), "timing-attack-dummy-password");
+
     // Formulaire de connexion (page servie par GET /login).
     private const string LoginPageHtml = """
 <!doctype html>
@@ -69,7 +76,13 @@ public static class ConnectEndpoints
             {
                 var user = await userManager.FindByNameAsync(request.Username!);
                 if (user is null)
+                {
+                    // Email inconnu : vérification "à vide" pour égaliser le temps de
+                    // réponse (anti-énumération par timing).
+                    userManager.PasswordHasher.VerifyHashedPassword(
+                        new ApplicationUser(), DummyPasswordHash, request.Password!);
                     return Forbid("Identifiants invalides.");
+                }
 
                 // Vérification AVEC lockout : notre anti-brute-force reste actif.
                 var result = await signInManager.CheckPasswordSignInAsync(
@@ -170,14 +183,19 @@ public static class ConnectEndpoints
             if (string.IsNullOrWhiteSpace(returnUrl)) returnUrl = "/";
 
             var user = await userManager.FindByEmailAsync(email);
-            if (user is not null)
+            if (user is null)
             {
-                // Pose le cookie de session ET applique le verrouillage (anti-brute-force).
-                var result = await signInManager.PasswordSignInAsync(
-                    user, password, isPersistent: false, lockoutOnFailure: true);
-                if (result.Succeeded)
-                    return Results.Redirect(returnUrl);
+                // Email inconnu : même vérification "à vide" que sur /connect/token.
+                userManager.PasswordHasher.VerifyHashedPassword(
+                    new ApplicationUser(), DummyPasswordHash, password);
+                return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}&error=true");
             }
+
+            // Pose le cookie de session ET applique le verrouillage (anti-brute-force).
+            var loginResult = await signInManager.PasswordSignInAsync(
+                user, password, isPersistent: false, lockoutOnFailure: true);
+            if (loginResult.Succeeded)
+                return Results.Redirect(returnUrl);
 
             return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}&error=true");
         });
