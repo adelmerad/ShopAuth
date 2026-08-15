@@ -1,9 +1,9 @@
-﻿using AuthApiTest.Entities;
+﻿using ShopAuth.Entities;
 using Microsoft.AspNetCore.Identity;
 using OpenIddict.Abstractions;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
-namespace AuthApiTest.Data;
+namespace ShopAuth.Data;
 
 public static class DbSeeder
 {

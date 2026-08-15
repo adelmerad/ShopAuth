@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 using System.Security.Claims;
-using AuthApiTest.Entities;
+using ShopAuth.Entities;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
@@ -10,7 +10,7 @@ using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
-namespace AuthApiTest.Endpoints;
+namespace ShopAuth.Endpoints;
 
 // Endpoint OAuth2 standard émis par OpenIddict : POST /connect/token
 public static class ConnectEndpoints
@@ -29,7 +29,7 @@ public static class ConnectEndpoints
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Connexion — AuthApiTest</title>
+  <title>Connexion — ShopAuth</title>
   <style>
     body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:#f4f6f9; display:grid; place-items:center; min-height:100vh; margin:0; }
     .card { background:#fff; padding:32px; border-radius:14px; box-shadow:0 6px 24px rgba(20,25,40,.08); width:320px; }

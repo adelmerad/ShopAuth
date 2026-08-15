@@ -1,4 +1,4 @@
-# AuthApiTest
+# ShopAuth
 
 Serveur d'authentification **OAuth2 / OpenID Connect** construit avec ASP.NET Core 8 et **OpenIddict** — projet d'apprentissage réalisé pendant mon stage chez Mobilis (encadrant : M. Ibrahim).
 

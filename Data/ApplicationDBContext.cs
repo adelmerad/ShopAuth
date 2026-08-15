@@ -1,8 +1,8 @@
 ﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
-using AuthApiTest.Entities;
+using ShopAuth.Entities;
 
-namespace AuthApiTest.Data;
+namespace ShopAuth.Data;
 
 public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
 {

@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace AuthApiTest.Migrations
+namespace ShopAuth.Migrations
 {
     /// <inheritdoc />
     public partial class AddOpenIddict : Migration

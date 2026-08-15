@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Identity;
 
-namespace AuthApiTest.Entities;
+namespace ShopAuth.Entities;
 
 public class ApplicationUser : IdentityUser
 {

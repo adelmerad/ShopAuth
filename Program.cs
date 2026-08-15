@@ -1,10 +1,10 @@
-using AuthApiTest.Endpoints;
+using ShopAuth.Endpoints;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using OpenIddict.Validation.AspNetCore;
 using Microsoft.OpenApi.Models;
-using AuthApiTest.Data;
-using AuthApiTest.Entities;
+using ShopAuth.Data;
+using ShopAuth.Entities;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 var builder = WebApplication.CreateBuilder(args);
