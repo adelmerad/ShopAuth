@@ -65,6 +65,14 @@ builder.Services.AddOpenIddict()
         options.SetTokenEndpointUris("connect/token");
         options.SetAuthorizationEndpointUris("connect/authorize");
 
+        // Issuer FIXE (pas déduit dynamiquement de la requête entrante). Nécessaire
+        // dès qu'on peut atteindre ce serveur par plusieurs adresses (localhost ET
+        // IP LAN) : sans ça, un code émis via une requête arrivée par l'IP LAN et
+        // échangé via un appel serveur-à-serveur en localhost seraient vus comme
+        // deux issuers différents -> "invalid_grant : issuer not valid". Doit
+        // rester identique à SetIssuer(...) côté validation de ShopApi.
+        options.SetIssuer(new Uri("http://localhost:5124/"));
+
         // Flows autorisés : password + refresh + authorization code (avec PKCE)
         options.AllowPasswordFlow()
                .AllowRefreshTokenFlow()

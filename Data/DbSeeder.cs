@@ -33,29 +33,29 @@ public static class DbSeeder
         }
     }
 
-    // Enregistre l'application cliente OpenIddict (idempotent).
+    // Enregistre l'application cliente OpenIddict. Idempotent au sens fort :
+    // si le client existe déjà, on met à jour ses infos (ex: nouvelle IP LAN
+    // dans RedirectUris) au lieu de les ignorer.
     public static async Task SeedOpenIddictClientAsync(IServiceProvider services)
     {
         var manager = services.GetRequiredService<IOpenIddictApplicationManager>();
 
         const string clientId = "postman";
 
-        // Déjà présent ? On ne fait rien.
-        if (await manager.FindByClientIdAsync(clientId) is not null)
-            return;
-
-        await manager.CreateAsync(new OpenIddictApplicationDescriptor
+        var descriptor = new OpenIddictApplicationDescriptor
         {
             ClientId = clientId,
             ClientType = ClientTypes.Public,          // client public : pas de secret
             ConsentType = ConsentTypes.Implicit,      // auto-approuve (pas d'écran de consentement)
             DisplayName = "Client de test (Postman / Swagger)",
 
-            // Où OpenIddict a le droit de renvoyer après login (Swagger + notre BFF WebApp).
+            // Où OpenIddict a le droit de renvoyer après login (Swagger + notre BFF
+            // ShopWebApp, en local ET depuis le réseau local pour tester depuis un autre PC).
             RedirectUris =
             {
                 new Uri("http://localhost:5124/swagger/oauth2-redirect.html"),
-                new Uri("http://localhost:5200/signin-oidc")
+                new Uri("http://localhost:5200/signin-oidc"),
+                new Uri("http://192.168.100.9:5200/signin-oidc")
             },
 
             Permissions =
@@ -77,7 +77,13 @@ public static class DbSeeder
                 Permissions.Scopes.Profile,
                 Permissions.Prefixes.Scope + "shop_api"
             }
-        });
+        };
+
+        var existing = await manager.FindByClientIdAsync(clientId);
+        if (existing is null)
+            await manager.CreateAsync(descriptor);
+        else
+            await manager.UpdateAsync(existing, descriptor);
     }
 
     // Enregistre le scope d'API "shop_api" (idempotent).
