@@ -55,7 +55,7 @@ public static class DbSeeder
             {
                 new Uri("http://localhost:5124/swagger/oauth2-redirect.html"),
                 new Uri("http://localhost:5200/signin-oidc"),
-                new Uri("http://192.168.100.9:5200/signin-oidc")
+                new Uri("http://172.20.10.4:5200/signin-oidc")
             },
 
             Permissions =
@@ -76,6 +76,59 @@ public static class DbSeeder
                 Permissions.Scopes.Email,
                 Permissions.Scopes.Profile,
                 Permissions.Prefixes.Scope + "shop_api"
+            }
+        };
+
+        var existing = await manager.FindByClientIdAsync(clientId);
+        if (existing is null)
+            await manager.CreateAsync(descriptor);
+        else
+            await manager.UpdateAsync(existing, descriptor);
+    }
+
+    // Enregistre le client CONFIDENTIEL dédié à ShopWebApp (idempotent, upsert).
+    // Séparé de "postman" : "postman" reste public car Swagger tourne dans le
+    // navigateur et ne peut jamais garder un secret en sécurité. ShopWebApp,
+    // lui, tourne côté serveur : il peut (et doit) garder un vrai secret.
+    public static async Task SeedShopWebAppClientAsync(IServiceProvider services)
+    {
+        var manager = services.GetRequiredService<IOpenIddictApplicationManager>();
+
+        const string clientId = "shopwebapp-bff";
+
+        var descriptor = new OpenIddictApplicationDescriptor
+        {
+            ClientId = clientId,
+            ClientType = ClientTypes.Confidential,
+            ClientSecret = "shopwebapp-secret-dev-only", // dev uniquement, projet d'apprentissage
+            ConsentType = ConsentTypes.Implicit,
+            DisplayName = "ShopWebApp (BFF)",
+
+            RedirectUris =
+            {
+                new Uri("http://localhost:5200/signin-oidc"),
+                new Uri("http://192.168.100.9:5200/signin-oidc"),
+                new Uri("http://172.20.10.4:5200/signin-oidc")
+            },
+
+            Permissions =
+            {
+                Permissions.Endpoints.Token,
+                Permissions.Endpoints.Authorization,
+
+                Permissions.GrantTypes.AuthorizationCode,
+                Permissions.GrantTypes.RefreshToken,
+
+                Permissions.ResponseTypes.Code,
+
+                Permissions.Scopes.Email,
+                Permissions.Scopes.Profile,
+                Permissions.Prefixes.Scope + "shop_api"
+            },
+
+            Requirements =
+            {
+                Requirements.Features.ProofKeyForCodeExchange
             }
         };
 

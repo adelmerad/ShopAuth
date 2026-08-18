@@ -188,6 +188,7 @@ using (var scope = app.Services.CreateScope())
     await DbSeeder.SeedAsync(scope.ServiceProvider);
     await DbSeeder.SeedApiScopeAsync(scope.ServiceProvider);
     await DbSeeder.SeedOpenIddictClientAsync(scope.ServiceProvider);
+    await DbSeeder.SeedShopWebAppClientAsync(scope.ServiceProvider);
 }
 
 
