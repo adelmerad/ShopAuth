@@ -10,27 +10,37 @@ public static class DbSeeder
     public static async Task SeedAsync(IServiceProvider services)
     {
         var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
 
         const string email = "test@entreprise.com";
 
-        // Déjà présent ? On ne fait rien (idempotent)
-        if (await userManager.FindByEmailAsync(email) is not null)
-            return;
+        // Le rôle "admin" doit exister avant qu'on essaie de l'assigner.
+        if (!await roleManager.RoleExistsAsync("admin"))
+            await roleManager.CreateAsync(new IdentityRole("admin"));
 
-        var user = new ApplicationUser
+        var user = await userManager.FindByEmailAsync(email);
+        if (user is null)
         {
-            UserName = email,
-            Email = email,
-            MustChangePassword = true
-        };
+            user = new ApplicationUser
+            {
+                UserName = email,
+                Email = email,
+                MustChangePassword = true
+            };
 
-        var result = await userManager.CreateAsync(user, "MotDePasseInitial123!");
+            var result = await userManager.CreateAsync(user, "MotDePasseInitial123!");
 
-        if (!result.Succeeded)
-        {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new Exception($"Échec du seed : {errors}");
+            if (!result.Succeeded)
+            {
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                throw new Exception($"Échec du seed : {errors}");
+            }
         }
+
+        // En dehors du if : s'applique aussi bien à un utilisateur tout juste
+        // créé qu'à un utilisateur déjà existant qui n'aurait pas encore le rôle.
+        if (!await userManager.IsInRoleAsync(user, "admin"))
+            await userManager.AddToRoleAsync(user, "admin");
     }
 
     // Enregistre l'application cliente OpenIddict. Idempotent au sens fort :
@@ -104,11 +114,13 @@ public static class DbSeeder
             ConsentType = ConsentTypes.Implicit,
             DisplayName = "ShopWebApp (BFF)",
 
+            // /auth/callback : ShopWebApp gère l'échange lui-même (PKCE manuel),
+            // plus le middleware AddOpenIdConnect et son /signin-oidc par défaut.
             RedirectUris =
             {
-                new Uri("http://localhost:5200/signin-oidc"),
-                new Uri("http://192.168.100.9:5200/signin-oidc"),
-                new Uri("http://172.20.10.4:5200/signin-oidc")
+                new Uri("http://localhost:5200/auth/callback"),
+                new Uri("http://192.168.100.9:5200/auth/callback"),
+                new Uri("http://172.20.10.4:5200/auth/callback")
             },
 
             Permissions =

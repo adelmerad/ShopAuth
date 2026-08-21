@@ -90,7 +90,7 @@ public static class ConnectEndpoints
                 if (!result.Succeeded)
                     return Forbid("Identifiants invalides ou compte verrouillé.");
 
-                var principal = CreatePrincipal(user, request.GetScopes());
+                var principal = await CreatePrincipalAsync(userManager, user, request.GetScopes());
                 // Résout les audiences (aud) à partir des scopes demandés.
                 principal.SetResources(await GetResourcesAsync(scopeManager, request.GetScopes()));
                 return Results.SignIn(principal, null,
@@ -110,7 +110,7 @@ public static class ConnectEndpoints
                 if (user is null)
                     return Forbid("Le code ou le refresh token n'est plus valide.");
 
-                var principal = CreatePrincipal(user, auth.Principal!.GetScopes());
+                var principal = await CreatePrincipalAsync(userManager, user, auth.Principal!.GetScopes());
                 principal.SetResources(await GetResourcesAsync(scopeManager, auth.Principal!.GetScopes()));
                 return Results.SignIn(principal, null,
                     OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -152,7 +152,7 @@ public static class ConnectEndpoints
             var user = await userManager.GetUserAsync(result.Principal!)
                 ?? throw new InvalidOperationException("Utilisateur introuvable.");
 
-            var principal = CreatePrincipal(user, request.GetScopes());
+            var principal = await CreatePrincipalAsync(userManager, user, request.GetScopes());
             principal.SetResources(await GetResourcesAsync(scopeManager, request.GetScopes()));
             return Results.SignIn(principal, null,
                 OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -212,7 +212,8 @@ public static class ConnectEndpoints
     }
 
     // Construit l'identité (claims + scopes + destinations) à partir de l'utilisateur.
-    private static ClaimsPrincipal CreatePrincipal(ApplicationUser user, IEnumerable<string> scopes)
+    private static async Task<ClaimsPrincipal> CreatePrincipalAsync(
+        UserManager<ApplicationUser> userManager, ApplicationUser user, IEnumerable<string> scopes)
     {
         var identity = new ClaimsIdentity(
             authenticationType: TokenValidationParameters.DefaultAuthenticationType,
@@ -222,6 +223,9 @@ public static class ConnectEndpoints
         identity.SetClaim(Claims.Subject, user.Id)
                 .SetClaim(Claims.Email, user.Email)
                 .SetClaim(Claims.Name, user.UserName);
+
+        foreach (var role in await userManager.GetRolesAsync(user))
+            identity.AddClaim(Claims.Role, role);
 
         identity.SetScopes(scopes);
         identity.SetDestinations(GetDestinations);
