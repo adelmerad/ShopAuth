@@ -2,7 +2,7 @@
 
 Serveur d'authentification **OAuth2 / OpenID Connect** construit avec ASP.NET Core 8 et **OpenIddict** — projet d'apprentissage réalisé pendant mon stage chez Mobilis (encadrant : M. Ibrahim).
 
-Parti d'une API JWT « maison » (aujourd'hui entièrement retirée), le projet a évolué en véritable serveur d'autorisation standard : il délivre des access tokens JWT signés, des id tokens et des refresh tokens (avec rotation), et d'autres API (comme **ShopApi**) valident ces tokens **sans partager de secret**. ASP.NET Core Identity gère les utilisateurs (hachage, verrouillage de compte).
+Parti d'une API JWT « maison » (aujourd'hui entièrement retirée), le projet a évolué en véritable serveur d'autorisation standard : il délivre des access tokens JWT signés, des id tokens et des refresh tokens (avec rotation), que **ShopWebApp** utilise pour authentifier ses utilisateurs. ASP.NET Core Identity gère les utilisateurs (hachage, verrouillage de compte, rôles).
 
 ## Stack
 
@@ -65,9 +65,9 @@ Swagger est disponible sur `/swagger` en environnement Development.
 
 Au démarrage, `DbSeeder` crée (idempotent) :
 
-- **Utilisateur de test** : `test@entreprise.com` / `MotDePasseInitial123!` (`MustChangePassword: true`)
+- **Utilisateur de test** : `test@entreprise.com` / `MotDePasseInitial123!` (`MustChangePassword: true`), rôle `admin`
 - **Client OpenIddict** public `postman` (flows *authorization code* + PKCE, *password*, *refresh_token*)
-- **Scope d'API** `shop_api` (dont la *resource* devient l'`aud` des tokens destinés à ShopApi)
+- **Client OpenIddict** confidentiel `shopwebapp-bff` (secret + PKCE, dédié à ShopWebApp)
 
 ## Obtenir un token (OAuth2 *password grant*)
 
@@ -77,7 +77,7 @@ Au démarrage, `DbSeeder` crée (idempotent) :
 grant_type=password
 username=test@entreprise.com
 password=MotDePasseInitial123!
-scope=openid email profile offline_access shop_api
+scope=openid email profile offline_access
 client_id=postman
 ```
 
@@ -99,10 +99,6 @@ Le vrai flow SSO : dans Swagger, **Authorize → `authorization_code`** redirige
 | GET | `/.well-known/openid-configuration` | Découverte OIDC |
 | GET | `/.well-known/jwks` | Clés publiques de signature |
 
-## Serveur de ressources (SSO)
-
-Une API tierce (**ShopApi**) valide les tokens émis par ce serveur : elle récupère les clés via `jwks_uri` et n'accepte que les tokens dont `aud` contient `shop_api`. Un **CORS** autorise l'origine de son Swagger (`http://localhost:5050`) à appeler `/connect/token`.
-
 ## Notes dev
 
 - **Clés éphémères** : régénérées à chaque redémarrage → les tokens émis avant deviennent invalides. En prod : de vrais certificats persistants.
@@ -113,8 +109,9 @@ Une API tierce (**ShopApi**) valide les tokens émis par ce serveur : elle récu
 
 - [x] Renforcements sécurité (timing, lockout, rotation, révocation)
 - [x] Serveur OpenIddict — *password grant* (Phase 1)
-- [x] Resource server : ShopApi valide les tokens (Phase 3)
 - [x] Authorization Code + PKCE avec page de login (Phase 2) — consentement auto (implicite)
 - [x] Retrait complet de l'ancien système custom `/api/auth/*` (`AuthEndpoints`, `TokenService`, `AuthService`, table `RefreshTokens`, section `Jwt`)
+- [x] Claim `role` dans les tokens (rôle `admin` seedé)
+- [x] Client confidentiel dédié `shopwebapp-bff` (au lieu de partager `postman` avec Swagger)
 - [ ] Écran de consentement explicite + protection anti-CSRF sur `/login`
-- [ ] Register + rôles (role claims)
+- [ ] Register
