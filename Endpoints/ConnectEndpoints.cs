@@ -260,6 +260,13 @@ public static class ConnectEndpoints
                     yield return Destinations.IdentityToken;
                 yield break;
 
+            // Le role doit être visible côté client (ShopWebApp) pour l'autorisation,
+            // donc aussi dans l'id_token, pas seulement l'access_token.
+            case Claims.Role:
+                yield return Destinations.AccessToken;
+                yield return Destinations.IdentityToken;
+                yield break;
+
             // Ne jamais exposer le security stamp d'Identity dans un token.
             case "AspNet.Identity.SecurityStamp":
                 yield break;
