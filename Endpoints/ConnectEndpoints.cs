@@ -1,10 +1,12 @@
 using System.Collections.Immutable;
 using System.Security.Claims;
+using ShopAuth.Data;
 using ShopAuth.Entities;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
@@ -64,7 +66,8 @@ public static class ConnectEndpoints
             HttpContext httpContext,
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
-            IOpenIddictScopeManager scopeManager) =>
+            IOpenIddictScopeManager scopeManager,
+            ApplicationDbContext db) =>
         {
             // OpenIddict a déjà validé la requête (client_id, grant_type...) ;
             // on récupère ses paramètres normalisés.
@@ -90,7 +93,10 @@ public static class ConnectEndpoints
                 if (!result.Succeeded)
                     return Forbid("Identifiants invalides ou compte verrouillé.");
 
-                var principal = await CreatePrincipalAsync(userManager, user, request.GetScopes());
+                if (!await HasAppAccessAsync(userManager, db, user, request.ClientId!))
+                    return Forbid("Ce compte n'a aucun rôle pour cette application.", Errors.AccessDenied);
+
+                var principal = await CreatePrincipalAsync(userManager, db, user, request.ClientId!, request.GetScopes());
                 // Résout les audiences (aud) à partir des scopes demandés.
                 principal.SetResources(await GetResourcesAsync(scopeManager, request.GetScopes()));
                 return Results.SignIn(principal, null,
@@ -110,7 +116,12 @@ public static class ConnectEndpoints
                 if (user is null)
                     return Forbid("Le code ou le refresh token n'est plus valide.");
 
-                var principal = await CreatePrincipalAsync(userManager, user, auth.Principal!.GetScopes());
+                // Revérifié à chaque refresh : un accès retiré entre-temps coupe
+                // aussi le renouvellement, pas seulement les nouvelles connexions.
+                if (!await HasAppAccessAsync(userManager, db, user, request.ClientId!))
+                    return Forbid("Ce compte n'a aucun rôle pour cette application.", Errors.AccessDenied);
+
+                var principal = await CreatePrincipalAsync(userManager, db, user, request.ClientId!, auth.Principal!.GetScopes());
                 principal.SetResources(await GetResourcesAsync(scopeManager, auth.Principal!.GetScopes()));
                 return Results.SignIn(principal, null,
                     OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -123,7 +134,8 @@ public static class ConnectEndpoints
         app.MapGet("/connect/authorize", async (
             HttpContext httpContext,
             UserManager<ApplicationUser> userManager,
-            IOpenIddictScopeManager scopeManager) =>
+            IOpenIddictScopeManager scopeManager,
+            ApplicationDbContext db) =>
         {
             var request = httpContext.GetOpenIddictServerRequest()
                 ?? throw new InvalidOperationException("Requête OpenIddict introuvable.");
@@ -152,7 +164,17 @@ public static class ConnectEndpoints
             var user = await userManager.GetUserAsync(result.Principal!)
                 ?? throw new InvalidOperationException("Utilisateur introuvable.");
 
-            var principal = await CreatePrincipalAsync(userManager, user, request.GetScopes());
+            // Avoir un compte SSO valide ne suffit pas : il faut un rôle (global admin
+            // ou applicatif) pour CETTE application precise, sinon access_denied.
+            if (!await HasAppAccessAsync(userManager, db, user, request.ClientId!))
+            {
+                // On ferme la session pour permettre de reessayer avec un autre compte
+                // sans avoir a vider les cookies a la main.
+                await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+                return Forbid("Ce compte n'a aucun rôle pour cette application.", Errors.AccessDenied);
+            }
+
+            var principal = await CreatePrincipalAsync(userManager, db, user, request.ClientId!, request.GetScopes());
             principal.SetResources(await GetResourcesAsync(scopeManager, request.GetScopes()));
             return Results.SignIn(principal, null,
                 OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -211,9 +233,27 @@ public static class ConnectEndpoints
         return resources;
     }
 
+    // Un compte a-t-il le droit d'utiliser cette application (client_id) ?
+    // Vrai si : role global "admin" (passe-partout), OU au moins un role
+    // applicatif enregistre pour ce client_id precis dans UserApplicationRoles.
+    private static async Task<bool> HasAppAccessAsync(
+        UserManager<ApplicationUser> userManager, ApplicationDbContext db, ApplicationUser user, string clientId)
+    {
+        var globalRoles = await userManager.GetRolesAsync(user);
+        if (globalRoles.Contains("admin"))
+            return true;
+
+        return await db.UserApplicationRoles
+            .AnyAsync(x => x.UserId == user.Id && x.ClientId == clientId);
+    }
+
     // Construit l'identité (claims + scopes + destinations) à partir de l'utilisateur.
+    // Fusionne les roles globaux (AspNetUserRoles) et les roles specifiques a
+    // cette application (UserApplicationRoles) - union, jamais remplacement :
+    // un admin reste admin partout.
     private static async Task<ClaimsPrincipal> CreatePrincipalAsync(
-        UserManager<ApplicationUser> userManager, ApplicationUser user, IEnumerable<string> scopes)
+        UserManager<ApplicationUser> userManager, ApplicationDbContext db, ApplicationUser user,
+        string clientId, IEnumerable<string> scopes)
     {
         var identity = new ClaimsIdentity(
             authenticationType: TokenValidationParameters.DefaultAuthenticationType,
@@ -224,7 +264,13 @@ public static class ConnectEndpoints
                 .SetClaim(Claims.Email, user.Email)
                 .SetClaim(Claims.Name, user.UserName);
 
-        foreach (var role in await userManager.GetRolesAsync(user))
+        var globalRoles = await userManager.GetRolesAsync(user);
+        var appRoles = await db.UserApplicationRoles
+            .Where(x => x.UserId == user.Id && x.ClientId == clientId)
+            .Select(x => x.Role.Name!)
+            .ToListAsync();
+
+        foreach (var role in globalRoles.Concat(appRoles).Distinct())
             identity.AddClaim(Claims.Role, role);
 
         identity.SetScopes(scopes);
@@ -233,13 +279,14 @@ public static class ConnectEndpoints
         return new ClaimsPrincipal(identity);
     }
 
-    // Réponse d'échec au format OAuth2 (invalid_grant + description).
-    private static IResult Forbid(string description) =>
+    // Réponse d'échec au format OAuth2 (invalid_grant par défaut, ou un autre
+    // code d'erreur standard comme access_denied).
+    private static IResult Forbid(string description, string error = Errors.InvalidGrant) =>
         Results.Forbid(
             authenticationSchemes: new[] { OpenIddictServerAspNetCoreDefaults.AuthenticationScheme },
             properties: new AuthenticationProperties(new Dictionary<string, string?>
             {
-                [OpenIddictServerAspNetCoreConstants.Properties.Error] = Errors.InvalidGrant,
+                [OpenIddictServerAspNetCoreConstants.Properties.Error] = error,
                 [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = description
             }));
 

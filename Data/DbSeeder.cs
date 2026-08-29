@@ -1,5 +1,6 @@
 ﻿using ShopAuth.Entities;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using OpenIddict.Abstractions;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
@@ -41,6 +42,37 @@ public static class DbSeeder
         // créé qu'à un utilisateur déjà existant qui n'aurait pas encore le rôle.
         if (!await userManager.IsInRoleAsync(user, "admin"))
             await userManager.AddToRoleAsync(user, "admin");
+
+        // Deuxieme compte de test, SANS role global : sert a demontrer/tester les
+        // roles par application (UserApplicationRoles) - ce compte n'a acces a
+        // aucune application tant qu'un role applicatif ne lui est pas donne.
+        if (!await roleManager.RoleExistsAsync("employe"))
+            await roleManager.CreateAsync(new IdentityRole("employe"));
+
+        const string employeEmail = "employe@entreprise.com";
+        var employe = await userManager.FindByEmailAsync(employeEmail);
+        if (employe is null)
+        {
+            employe = new ApplicationUser { UserName = employeEmail, Email = employeEmail };
+            await userManager.CreateAsync(employe, "MotDePasse123!");
+        }
+
+        // Demo du role applicatif : "employe" n'a AUCUN role global, mais peut
+        // quand meme utiliser shopwebapp-bff grace a ce role scope a ce client_id.
+        var db = services.GetRequiredService<ApplicationDbContext>();
+        var employeRole = await roleManager.FindByNameAsync("employe");
+        var hasAppRole = await db.UserApplicationRoles.AnyAsync(x =>
+            x.UserId == employe.Id && x.ClientId == "shopwebapp-bff" && x.RoleId == employeRole!.Id);
+        if (!hasAppRole)
+        {
+            db.UserApplicationRoles.Add(new UserApplicationRole
+            {
+                UserId = employe.Id,
+                ClientId = "shopwebapp-bff",
+                RoleId = employeRole!.Id
+            });
+            await db.SaveChangesAsync();
+        }
     }
 
     // Enregistre l'application cliente OpenIddict. Idempotent au sens fort :
