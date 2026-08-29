@@ -10,6 +10,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         : base(options) { }
 
     public DbSet<UserApplicationRole> UserApplicationRoles { get; set; } = null!;
+    public DbSet<UserSuspension> UserSuspensions { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -28,5 +29,10 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             .HasOne(x => x.Role)
             .WithMany()
             .HasForeignKey(x => x.RoleId);
+
+        builder.Entity<UserSuspension>()
+            .HasOne(x => x.User)
+            .WithMany()
+            .HasForeignKey(x => x.UserId);
     }
 }

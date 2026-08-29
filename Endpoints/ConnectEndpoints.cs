@@ -93,6 +93,9 @@ public static class ConnectEndpoints
                 if (!result.Succeeded)
                     return Forbid("Identifiants invalides ou compte verrouillé.");
 
+                if (await AccountStatusChecker.IsSuspendedAsync(db, user.Id))
+                    return Forbid("Compte suspendu.", Errors.AccessDenied);
+
                 if (!await HasAppAccessAsync(userManager, db, user, request.ClientId!))
                     return Forbid("Ce compte n'a aucun rôle pour cette application.", Errors.AccessDenied);
 
@@ -116,8 +119,13 @@ public static class ConnectEndpoints
                 if (user is null)
                     return Forbid("Le code ou le refresh token n'est plus valide.");
 
-                // Revérifié à chaque refresh : un accès retiré entre-temps coupe
-                // aussi le renouvellement, pas seulement les nouvelles connexions.
+                // Revérifié à chaque refresh : une suspension ou un accès retiré
+                // entre-temps coupe aussi le renouvellement, pas seulement les
+                // nouvelles connexions - un refresh token deja valide ne doit pas
+                // suffire a garder l'acces.
+                if (await AccountStatusChecker.IsSuspendedAsync(db, user.Id))
+                    return Forbid("Compte suspendu.", Errors.AccessDenied);
+
                 if (!await HasAppAccessAsync(userManager, db, user, request.ClientId!))
                     return Forbid("Ce compte n'a aucun rôle pour cette application.", Errors.AccessDenied);
 
@@ -164,6 +172,14 @@ public static class ConnectEndpoints
             var user = await userManager.GetUserAsync(result.Principal!)
                 ?? throw new InvalidOperationException("Utilisateur introuvable.");
 
+            // Un cookie deja valide ne doit pas suffire a obtenir de nouveaux jetons :
+            // une suspension decidee entre-temps coupe aussi une session deja ouverte.
+            if (await AccountStatusChecker.IsSuspendedAsync(db, user.Id))
+            {
+                await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+                return Forbid("Compte suspendu.", Errors.AccessDenied);
+            }
+
             // Avoir un compte SSO valide ne suffit pas : il faut un rôle (global admin
             // ou applicatif) pour CETTE application precise, sinon access_denied.
             if (!await HasAppAccessAsync(userManager, db, user, request.ClientId!))
@@ -181,12 +197,15 @@ public static class ConnectEndpoints
         });
 
         // ----- Page de login (formulaire HTML minimal) -----
-        app.MapGet("/login", (string? returnUrl, bool? error) =>
+        app.MapGet("/login", (string? returnUrl, string? error) =>
         {
             var url = System.Net.WebUtility.HtmlEncode(returnUrl ?? "/");
-            var errorHtml = error == true
-                ? "<p class=\"err\">Identifiants invalides ou compte verrouillé.</p>"
-                : "";
+            var errorHtml = error switch
+            {
+                "suspended" => "<p class=\"err\">Ce compte est suspendu.</p>",
+                "true" => "<p class=\"err\">Identifiants invalides ou compte verrouillé.</p>",
+                _ => ""
+            };
             var html = LoginPageHtml
                 .Replace("__RETURN_URL__", url)
                 .Replace("__ERROR__", errorHtml);
@@ -196,7 +215,8 @@ public static class ConnectEndpoints
         app.MapPost("/login", async (
             HttpContext httpContext,
             UserManager<ApplicationUser> userManager,
-            SignInManager<ApplicationUser> signInManager) =>
+            SignInManager<ApplicationUser> signInManager,
+            ApplicationDbContext db) =>
         {
             var form = await httpContext.Request.ReadFormAsync();
             var email = form["email"].ToString();
@@ -216,10 +236,16 @@ public static class ConnectEndpoints
             // Pose le cookie de session ET applique le verrouillage (anti-brute-force).
             var loginResult = await signInManager.PasswordSignInAsync(
                 user, password, isPersistent: false, lockoutOnFailure: true);
-            if (loginResult.Succeeded)
-                return Results.Redirect(returnUrl);
+            if (!loginResult.Succeeded)
+                return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}&error=true");
 
-            return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}&error=true");
+            if (await AccountStatusChecker.IsSuspendedAsync(db, user.Id))
+            {
+                await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+                return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}&error=suspended");
+            }
+
+            return Results.Redirect(returnUrl);
         });
     }
 
