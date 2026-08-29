@@ -17,7 +17,8 @@ public static class ClientEndpoints
         var group = app.MapGroup("/admin/api/clients")
             .RequireAuthorization(policy => policy
                 .AddAuthenticationSchemes(IdentityConstants.ApplicationScheme)
-                .RequireRole("admin"));
+                .RequireRole("admin"))
+            .AddEndpointFilter<RequireAdminHeaderFilter>();
 
         group.MapGet("/", async (IOpenIddictApplicationManager manager) =>
         {

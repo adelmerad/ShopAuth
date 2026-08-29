@@ -14,7 +14,8 @@ public static class RoleEndpoints
         var group = app.MapGroup("/admin/api/roles")
             .RequireAuthorization(policy => policy
                 .AddAuthenticationSchemes(IdentityConstants.ApplicationScheme)
-                .RequireRole("admin"));
+                .RequireRole("admin"))
+            .AddEndpointFilter<RequireAdminHeaderFilter>();
 
         group.MapGet("/", (RoleManager<IdentityRole> roleManager) =>
             Results.Ok(roleManager.Roles.Select(r => new { r.Id, r.Name, Protected = r.Name == "admin" })));

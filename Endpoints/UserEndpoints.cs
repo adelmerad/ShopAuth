@@ -21,7 +21,8 @@ public static class UserEndpoints
         var group = app.MapGroup("/admin/api/users")
             .RequireAuthorization(policy => policy
                 .AddAuthenticationSchemes(IdentityConstants.ApplicationScheme)
-                .RequireRole("admin"));
+                .RequireRole("admin"))
+            .AddEndpointFilter<RequireAdminHeaderFilter>();
 
         group.MapGet("/", async (UserManager<ApplicationUser> userManager, ApplicationDbContext db) =>
         {

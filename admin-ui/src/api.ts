@@ -6,11 +6,18 @@ class ApiError extends Error {
   }
 }
 
+// X-Sso-Admin : en-tete custom qu'un formulaire HTML piege ne peut pas ajouter,
+// et qu'un fetch() cross-origin declencherait via un preflight CORS que le
+// serveur rejette (defense en profondeur en plus du cookie SameSite=Lax).
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     credentials: 'include',
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     ...init,
+    headers: {
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      'X-Sso-Admin': '1',
+      ...init?.headers,
+    },
   })
 
   if (!res.ok) {
