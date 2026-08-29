@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import ActionsMenu from '../components/ActionsMenu'
 import type { Role } from '../types'
 
 export default function Roles() {
@@ -38,13 +39,24 @@ export default function Roles() {
 
   return (
     <div>
-      <h2>Rôles</h2>
+      <div className="page-header">
+        <h2>
+          Rôles
+          <span className="count">{roles.length}</span>
+        </h2>
+      </div>
+
       {msg && <p className={msg.ok ? 'msg ok' : 'msg error'}>{msg.text}</p>}
 
-      <form className="inline-form" onSubmit={create}>
-        <input placeholder="Nom du rôle" value={name} onChange={(e) => setName(e.target.value)} required />
-        <button type="submit">Créer</button>
-      </form>
+      <div className="card">
+        <div className="eyebrow">Nouveau rôle</div>
+        <form className="inline-form" onSubmit={create} style={{ margin: 0 }}>
+          <input placeholder="Nom du rôle" value={name} onChange={(e) => setName(e.target.value)} required />
+          <button className="primary" type="submit">
+            Créer
+          </button>
+        </form>
+      </div>
 
       <table>
         <thead>
@@ -57,15 +69,9 @@ export default function Roles() {
           {roles.map((r) => (
             <tr key={r.id}>
               <td>
-                {r.name} {r.protected && <span className="badge">protégé</span>}
+                {r.name} {r.protected && <span className="badge accent">protégé</span>}
               </td>
-              <td>
-                {!r.protected && (
-                  <button className="danger small" onClick={() => remove(r)}>
-                    Supprimer
-                  </button>
-                )}
-              </td>
+              <td>{!r.protected && <ActionsMenu items={[{ label: 'Supprimer', variant: 'danger', onClick: () => remove(r) }]} />}</td>
             </tr>
           ))}
         </tbody>

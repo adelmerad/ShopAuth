@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import ActionsMenu from '../components/ActionsMenu'
 import type { Client } from '../types'
 
 export default function Clients() {
@@ -56,28 +57,35 @@ export default function Clients() {
 
   return (
     <div>
-      <h2>Applications OAuth</h2>
+      <div className="page-header">
+        <h2>
+          Applications
+          <span className="count">{clients.length}</span>
+        </h2>
+      </div>
+
       {msg && <p className={msg.ok ? 'msg ok' : 'msg error'}>{msg.text}</p>}
       {revealedSecret && (
-        <p className="secret-reveal">
-          Secret (affiché une seule fois) : <code>{revealedSecret}</code>{' '}
+        <div className="secret-reveal">
+          <span>Secret (affiché une seule fois) :</span>
+          <code>{revealedSecret}</code>
           <button className="ghost small" onClick={() => setRevealedSecret(null)}>
             OK, noté
           </button>
-        </p>
+        </div>
       )}
 
-      <form className="inline-form" onSubmit={create}>
-        <input placeholder="client_id" value={clientId} onChange={(e) => setClientId(e.target.value)} required />
-        <input placeholder="Nom affiché" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
-        <input
-          placeholder="Redirect URI"
-          value={redirectUri}
-          onChange={(e) => setRedirectUri(e.target.value)}
-          required
-        />
-        <button type="submit">Créer</button>
-      </form>
+      <div className="card">
+        <div className="eyebrow">Nouvelle application</div>
+        <form className="inline-form" onSubmit={create} style={{ margin: 0 }}>
+          <input placeholder="client_id" value={clientId} onChange={(e) => setClientId(e.target.value)} required />
+          <input placeholder="Nom affiché" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
+          <input placeholder="Redirect URI" value={redirectUri} onChange={(e) => setRedirectUri(e.target.value)} required />
+          <button className="primary" type="submit">
+            Créer
+          </button>
+        </form>
+      </div>
 
       <table>
         <thead>
@@ -91,18 +99,18 @@ export default function Clients() {
         <tbody>
           {clients.map((c) => (
             <tr key={c.clientId}>
-              <td>
-                <code>{c.clientId}</code>
-              </td>
+              <td className="mono">{c.clientId}</td>
               <td>{c.displayName}</td>
-              <td>{c.redirectUris.join(', ')}</td>
+              <td className="mono" style={{ color: 'var(--muted)' }}>
+                {c.redirectUris.join(', ')}
+              </td>
               <td>
-                <button className="ghost small" onClick={() => rotate(c.clientId)}>
-                  Régénérer le secret
-                </button>
-                <button className="danger small" onClick={() => remove(c.clientId)}>
-                  Supprimer
-                </button>
+                <ActionsMenu
+                  items={[
+                    { label: 'Régénérer le secret', onClick: () => rotate(c.clientId) },
+                    { label: 'Supprimer', variant: 'danger', onClick: () => remove(c.clientId) },
+                  ]}
+                />
               </td>
             </tr>
           ))}
