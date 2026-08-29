@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
+using ShopAuth.Data;
 using ShopAuth.Entities;
 
 namespace ShopAuth.Endpoints;
@@ -17,7 +19,8 @@ public static class AccountEndpoints
         group.MapPost("/login", async (
             LoginRequest request,
             UserManager<ApplicationUser> userManager,
-            SignInManager<ApplicationUser> signInManager) =>
+            SignInManager<ApplicationUser> signInManager,
+            ApplicationDbContext db) =>
         {
             var user = await userManager.FindByEmailAsync(request.Email);
             if (user is null)
@@ -26,7 +29,19 @@ public static class AccountEndpoints
             var result = await signInManager.PasswordSignInAsync(
                 user, request.Password, isPersistent: false, lockoutOnFailure: true);
 
-            return result.Succeeded ? Results.Ok() : Results.Unauthorized();
+            if (result.IsLockedOut)
+                return Results.Json(new { error = AccountStatusChecker.LockedOutMessage(user) }, statusCode: StatusCodes.Status423Locked);
+
+            if (!result.Succeeded)
+                return Results.Unauthorized();
+
+            if (await AccountStatusChecker.IsSuspendedAsync(db, user.Id))
+            {
+                await signInManager.SignOutAsync();
+                return Results.Json(new { error = "Ce compte est suspendu." }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            return Results.Ok();
         });
 
         group.MapPost("/logout", async (SignInManager<ApplicationUser> signInManager) =>

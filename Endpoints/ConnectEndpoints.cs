@@ -90,8 +90,10 @@ public static class ConnectEndpoints
                 // Vérification AVEC lockout : notre anti-brute-force reste actif.
                 var result = await signInManager.CheckPasswordSignInAsync(
                     user, request.Password!, lockoutOnFailure: true);
+                if (result.IsLockedOut)
+                    return Forbid(AccountStatusChecker.LockedOutMessage(user));
                 if (!result.Succeeded)
-                    return Forbid("Identifiants invalides ou compte verrouillé.");
+                    return Forbid("Identifiants invalides.");
 
                 if (await AccountStatusChecker.IsSuspendedAsync(db, user.Id))
                     return Forbid("Compte suspendu.", Errors.AccessDenied);
@@ -197,13 +199,18 @@ public static class ConnectEndpoints
         });
 
         // ----- Page de login (formulaire HTML minimal) -----
-        app.MapGet("/login", (string? returnUrl, string? error) =>
+        app.MapGet("/login", (string? returnUrl, string? error, int? minutes) =>
         {
             var url = System.Net.WebUtility.HtmlEncode(returnUrl ?? "/");
             var errorHtml = error switch
             {
                 "suspended" => "<p class=\"err\">Ce compte est suspendu.</p>",
-                "true" => "<p class=\"err\">Identifiants invalides ou compte verrouillé.</p>",
+                // Distinct d'un verrouillage temporaire : un meme message pour
+                // les deux laisserait croire a quelqu'un qui s'est juste trompe
+                // de mot de passe que son compte a ete coupe definitivement.
+                "disabled" => "<p class=\"err\">Ce compte a été désactivé.</p>",
+                "locked" => $"<p class=\"err\">Trop de tentatives échouées. Réessayez {(minutes is > 0 ? $"dans {minutes} minute{(minutes > 1 ? "s" : "")}" : "plus tard")}.</p>",
+                "true" => "<p class=\"err\">Identifiants invalides.</p>",
                 _ => ""
             };
             var html = LoginPageHtml
@@ -236,6 +243,16 @@ public static class ConnectEndpoints
             // Pose le cookie de session ET applique le verrouillage (anti-brute-force).
             var loginResult = await signInManager.PasswordSignInAsync(
                 user, password, isPersistent: false, lockoutOnFailure: true);
+            if (loginResult.IsLockedOut)
+            {
+                if (user.LockoutEnd == DateTimeOffset.MaxValue)
+                    return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}&error=disabled");
+
+                var mins = user.LockoutEnd is null
+                    ? 1
+                    : Math.Max(1, (int)Math.Ceiling((user.LockoutEnd.Value - DateTimeOffset.UtcNow).TotalMinutes));
+                return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}&error=locked&minutes={mins}");
+            }
             if (!loginResult.Succeeded)
                 return Results.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}&error=true");
 

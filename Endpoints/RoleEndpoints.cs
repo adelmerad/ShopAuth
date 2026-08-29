@@ -15,6 +15,7 @@ public static class RoleEndpoints
             .RequireAuthorization(policy => policy
                 .AddAuthenticationSchemes(IdentityConstants.ApplicationScheme)
                 .RequireRole("admin"))
+            .AddEndpointFilter<RequireActiveAccountFilter>()
             .AddEndpointFilter<RequireAdminHeaderFilter>();
 
         group.MapGet("/", (RoleManager<IdentityRole> roleManager) =>
@@ -22,6 +23,15 @@ public static class RoleEndpoints
 
         group.MapPost("/", async (CreateRoleRequest request, RoleManager<IdentityRole> roleManager) =>
         {
+            if (string.IsNullOrWhiteSpace(request.Name))
+                return Results.BadRequest("Le nom du rôle est obligatoire.");
+
+            // AspNetRoles.NormalizedName est un nvarchar(256) : sans ce controle,
+            // un nom trop long fait echouer l'insertion en base et laisse fuiter
+            // une exception EF Core/SQL Server brute au client.
+            if (request.Name.Length > 256)
+                return Results.BadRequest("Le nom du rôle ne peut pas dépasser 256 caractères.");
+
             if (await roleManager.RoleExistsAsync(request.Name))
                 return Results.Conflict("Ce rôle existe déjà.");
 

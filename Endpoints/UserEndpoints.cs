@@ -22,6 +22,7 @@ public static class UserEndpoints
             .RequireAuthorization(policy => policy
                 .AddAuthenticationSchemes(IdentityConstants.ApplicationScheme)
                 .RequireRole("admin"))
+            .AddEndpointFilter<RequireActiveAccountFilter>()
             .AddEndpointFilter<RequireAdminHeaderFilter>();
 
         group.MapGet("/", async (UserManager<ApplicationUser> userManager, ApplicationDbContext db) =>
@@ -70,7 +71,8 @@ public static class UserEndpoints
             string id,
             SetRolesRequest request,
             HttpContext context,
-            UserManager<ApplicationUser> userManager) =>
+            UserManager<ApplicationUser> userManager,
+            ApplicationDbContext db) =>
         {
             var user = await userManager.FindByIdAsync(id);
             if (user is null)
@@ -83,7 +85,13 @@ public static class UserEndpoints
             if (id == currentUserId && wasAdmin && !willBeAdmin)
                 return Results.BadRequest("Impossible de retirer son propre rôle admin.");
 
-            if (wasAdmin && !willBeAdmin && await CountActiveAdminsAsync(userManager) <= 1)
+            // Si la cible est deja inactive (suspendue/desactivee), lui retirer
+            // le role admin ne change rien au nombre d'admins ACTIFS : le
+            // garde-fou ne doit alors pas s'appliquer, sinon un admin deja
+            // neutralise devient impossible a nettoyer.
+            if (wasAdmin && !willBeAdmin
+                && await AccountStatusChecker.IsActiveAsync(db, user)
+                && await CountActiveAdminsAsync(userManager, db) <= 1)
                 return Results.BadRequest("Il doit rester au moins un administrateur actif.");
 
             var current = await userManager.GetRolesAsync(user);
@@ -143,7 +151,8 @@ public static class UserEndpoints
         group.MapPost("/{id}/disable", async (
             string id,
             HttpContext context,
-            UserManager<ApplicationUser> userManager) =>
+            UserManager<ApplicationUser> userManager,
+            ApplicationDbContext db) =>
         {
             var user = await userManager.FindByIdAsync(id);
             if (user is null)
@@ -153,7 +162,9 @@ public static class UserEndpoints
             if (id == currentUserId)
                 return Results.BadRequest("Impossible de désactiver son propre compte.");
 
-            if (await userManager.IsInRoleAsync(user, "admin") && await CountActiveAdminsAsync(userManager) <= 1)
+            if (await userManager.IsInRoleAsync(user, "admin")
+                && await AccountStatusChecker.IsActiveAsync(db, user)
+                && await CountActiveAdminsAsync(userManager, db) <= 1)
                 return Results.BadRequest("Il doit rester au moins un administrateur actif.");
 
             // Le verrouillage seul ne coupe pas les sessions deja ouvertes : le
@@ -174,13 +185,30 @@ public static class UserEndpoints
             return Results.Ok();
         });
 
-        group.MapPost("/{id}/suspensions", async (string id, CreateSuspensionRequest request, ApplicationDbContext db, UserManager<ApplicationUser> userManager) =>
+        group.MapPost("/{id}/suspensions", async (
+            string id,
+            CreateSuspensionRequest request,
+            HttpContext context,
+            ApplicationDbContext db,
+            UserManager<ApplicationUser> userManager) =>
         {
-            if (await userManager.FindByIdAsync(id) is null)
+            var user = await userManager.FindByIdAsync(id);
+            if (user is null)
                 return Results.NotFound();
+
+            var currentUserId = userManager.GetUserId(context.User);
+            if (id == currentUserId)
+                return Results.BadRequest("Impossible de se suspendre soi-même.");
 
             if (request.EndsAt <= request.StartsAt)
                 return Results.BadRequest("La date de fin doit être après la date de début.");
+
+            // Suspendre le dernier admin actif verrouillerait tout le panneau
+            // d'admin, sans personne pour lever la suspension.
+            if (await userManager.IsInRoleAsync(user, "admin")
+                && await AccountStatusChecker.IsActiveAsync(db, user)
+                && await CountActiveAdminsAsync(userManager, db) <= 1)
+                return Results.BadRequest("Il doit rester au moins un administrateur actif.");
 
             // Deux periodes [A,B) et [C,D) se chevauchent si A < D ET C < B.
             var overlaps = await db.UserSuspensions.AnyAsync(s =>
@@ -217,7 +245,8 @@ public static class UserEndpoints
         group.MapDelete("/{id}", async (
             string id,
             HttpContext context,
-            UserManager<ApplicationUser> userManager) =>
+            UserManager<ApplicationUser> userManager,
+            ApplicationDbContext db) =>
         {
             var user = await userManager.FindByIdAsync(id);
             if (user is null)
@@ -227,7 +256,9 @@ public static class UserEndpoints
             if (id == currentUserId)
                 return Results.BadRequest("Impossible de supprimer son propre compte.");
 
-            if (await userManager.IsInRoleAsync(user, "admin") && await CountActiveAdminsAsync(userManager) <= 1)
+            if (await userManager.IsInRoleAsync(user, "admin")
+                && await AccountStatusChecker.IsActiveAsync(db, user)
+                && await CountActiveAdminsAsync(userManager, db) <= 1)
                 return Results.BadRequest("Il doit rester au moins un administrateur actif.");
 
             await userManager.DeleteAsync(user);
@@ -235,12 +266,16 @@ public static class UserEndpoints
         });
     }
 
-    // Un admin "actif" = role admin + pas (encore) verrouille. Un admin suspendu
-    // ou desactive ne compte pas comme un rempart valable contre le zero-admin.
-    private static async Task<int> CountActiveAdminsAsync(UserManager<ApplicationUser> userManager)
+    // Un admin "actif" = role admin + ni verrouille/desactive, ni suspendu.
+    // Un admin deja inactif ne compte pas comme un rempart valable contre le
+    // zero-admin.
+    private static async Task<int> CountActiveAdminsAsync(UserManager<ApplicationUser> userManager, ApplicationDbContext db)
     {
         var admins = await userManager.GetUsersInRoleAsync("admin");
-        var now = DateTimeOffset.UtcNow;
-        return admins.Count(a => a.LockoutEnd is null || a.LockoutEnd <= now);
+        var count = 0;
+        foreach (var admin in admins)
+            if (await AccountStatusChecker.IsActiveAsync(db, admin))
+                count++;
+        return count;
     }
 }

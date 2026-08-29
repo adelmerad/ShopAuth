@@ -18,6 +18,7 @@ public static class ClientEndpoints
             .RequireAuthorization(policy => policy
                 .AddAuthenticationSchemes(IdentityConstants.ApplicationScheme)
                 .RequireRole("admin"))
+            .AddEndpointFilter<RequireActiveAccountFilter>()
             .AddEndpointFilter<RequireAdminHeaderFilter>();
 
         group.MapGet("/", async (IOpenIddictApplicationManager manager) =>
