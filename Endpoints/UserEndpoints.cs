@@ -182,6 +182,12 @@ public static class UserEndpoints
             if (request.EndsAt <= request.StartsAt)
                 return Results.BadRequest("La date de fin doit être après la date de début.");
 
+            // Deux periodes [A,B) et [C,D) se chevauchent si A < D ET C < B.
+            var overlaps = await db.UserSuspensions.AnyAsync(s =>
+                s.UserId == id && request.StartsAt < s.EndsAt && s.StartsAt < request.EndsAt);
+            if (overlaps)
+                return Results.BadRequest("Cette période chevauche une suspension déjà existante pour ce compte.");
+
             db.UserSuspensions.Add(new UserSuspension
             {
                 UserId = id,
