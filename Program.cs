@@ -35,12 +35,40 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 
 // Cookie de session pour le login interactif (flow authorization code) :
 // quand /connect/authorize a besoin d'un utilisateur connecté, il redirige ici.
+// Meme cookie utilise par l'API d'admin (/admin/api, /api/account) : la, une
+// redirection HTML n'a pas de sens pour un appel fetch() depuis le panneau
+// React - on renvoie un vrai code de statut a la place.
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.LoginPath = "/login";
     options.ExpireTimeSpan = TimeSpan.FromMinutes(10); // session d'auth courte (10 min)
     options.SlidingExpiration = false;                 // expiration FERME
+
+    options.Events.OnRedirectToLogin = context =>
+    {
+        if (IsApiRequest(context.Request))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        }
+        context.Response.Redirect(context.RedirectUri);
+        return Task.CompletedTask;
+    };
+
+    options.Events.OnRedirectToAccessDenied = context =>
+    {
+        if (IsApiRequest(context.Request))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        }
+        context.Response.Redirect(context.RedirectUri);
+        return Task.CompletedTask;
+    };
 });
+
+static bool IsApiRequest(HttpRequest request) =>
+    request.Path.StartsWithSegments("/admin/api") || request.Path.StartsWithSegments("/api/account");
 
 // --- Authentification : on valide désormais les tokens émis par OpenIddict ---
 builder.Services.AddAuthentication(options =>
@@ -210,5 +238,9 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapConnectEndpoints();
+app.MapAccountEndpoints();
+app.MapUserEndpoints();
+app.MapClientEndpoints();
+app.MapRoleEndpoints();
 
 app.Run();
