@@ -165,7 +165,8 @@ public static class DbSeeder
                 Permissions.ResponseTypes.Code,
 
                 Permissions.Scopes.Email,
-                Permissions.Scopes.Profile
+                Permissions.Scopes.Profile,
+                Permissions.Prefixes.Scope + Scopes.OfflineAccess // necessaire pour obtenir un refresh_token
             },
 
             Requirements =
