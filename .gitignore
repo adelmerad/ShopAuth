@@ -484,3 +484,6 @@ $RECYCLE.BIN/
 
 appsettings.json
 appsettings.Development.json
+
+# Panneau d'admin (admin-ui) : build compile, pas la source
+wwwroot/admin/

@@ -243,4 +243,35 @@ app.MapUserEndpoints();
 app.MapClientEndpoints();
 app.MapRoleEndpoints();
 
+// Sert le panneau d'admin compile (admin-ui build -> wwwroot/admin) : endpoint
+// direct plutot que UseStaticFiles()+MapFallbackToFile(), qui n'arrivaient
+// jamais a servir les fichiers reels ici (le fallback les interceptait tous,
+// meme quand le fichier demande existait bel et bien sur le disque). En dev,
+// admin-ui tourne separement via Vite (port 5174) avec son propre proxy.
+var adminRoot = Path.Combine(builder.Environment.ContentRootPath, "wwwroot", "admin");
+app.MapGet("/admin/{*path}", (string? path) =>
+{
+    var requested = string.IsNullOrEmpty(path) ? "index.html" : path;
+    var fullPath = Path.GetFullPath(Path.Combine(adminRoot, requested));
+
+    // Empeche de sortir de adminRoot via un "../" dans l'URL.
+    if (!fullPath.StartsWith(Path.GetFullPath(adminRoot), StringComparison.Ordinal))
+        return Results.NotFound();
+
+    // Routing cote client (react-router) : un chemin sans fichier correspondant
+    // (ex. /admin/users apres un rafraichissement) retombe sur l'index de la SPA.
+    if (!File.Exists(fullPath))
+        fullPath = Path.Combine(adminRoot, "index.html");
+
+    var contentType = Path.GetExtension(fullPath) switch
+    {
+        ".html" => "text/html",
+        ".js" => "text/javascript",
+        ".css" => "text/css",
+        ".svg" => "image/svg+xml",
+        _ => "application/octet-stream"
+    };
+    return Results.File(fullPath, contentType);
+});
+
 app.Run();
