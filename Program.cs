@@ -89,9 +89,11 @@ builder.Services.AddOpenIddict()
     // 2) SERVER : émet les tokens
     .AddServer(options =>
     {
-        // Endpoints OAuth2 : token + autorisation (login interactif)
+        // Endpoints OAuth2 : token + autorisation (login interactif) + logout
+        // (deconnexion initiee par un client, ferme aussi NOTRE session ici).
         options.SetTokenEndpointUris("connect/token");
         options.SetAuthorizationEndpointUris("connect/authorize");
+        options.SetLogoutEndpointUris("connect/logout");
 
         // Issuer FIXE (pas déduit dynamiquement de la requête entrante). Nécessaire
         // dès qu'on peut atteindre ce serveur par plusieurs adresses (localhost ET
@@ -132,6 +134,7 @@ builder.Services.AddOpenIddict()
         options.UseAspNetCore()
                .EnableTokenEndpointPassthrough()
                .EnableAuthorizationEndpointPassthrough()
+               .EnableLogoutEndpointPassthrough()
                .DisableTransportSecurityRequirement();
     })
 

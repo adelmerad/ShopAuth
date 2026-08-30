@@ -154,10 +154,20 @@ public static class DbSeeder
                 new Uri("http://172.20.10.4:5200/auth/callback")
             },
 
+            // Ou ShopAuth a le droit de renvoyer une fois SA propre session
+            // fermee (deconnexion initiee par ShopWebApp via /connect/logout).
+            PostLogoutRedirectUris =
+            {
+                new Uri("http://localhost:5200/"),
+                new Uri("http://192.168.100.9:5200/"),
+                new Uri("http://172.20.10.4:5200/")
+            },
+
             Permissions =
             {
                 Permissions.Endpoints.Token,
                 Permissions.Endpoints.Authorization,
+                Permissions.Endpoints.Logout,
 
                 Permissions.GrantTypes.AuthorizationCode,
                 Permissions.GrantTypes.RefreshToken,

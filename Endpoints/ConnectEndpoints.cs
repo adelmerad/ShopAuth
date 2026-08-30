@@ -264,6 +264,23 @@ public static class ConnectEndpoints
 
             return Results.Redirect(returnUrl);
         });
+
+        // Deconnexion initiee par une application cliente (RP-initiated logout,
+        // ex. ShopWebApp appelle cette URL au lieu de juste fermer son propre
+        // cookie). On ferme NOTRE session Identity ici - OpenIddict ne la
+        // connait pas - puis on rend la main a OpenIddict : il verifie que
+        // post_logout_redirect_uri est bien enregistre pour ce client, puis y
+        // redirige. Sans ca, deconnecter ShopWebApp laisse ShopAuth connecte,
+        // et un autre client utilisant la meme session resterait connecte.
+        app.MapMethods("/connect/logout", new[] { "GET", "POST" }, async (
+            SignInManager<ApplicationUser> signInManager) =>
+        {
+            await signInManager.SignOutAsync();
+
+            return Results.SignOut(
+                new AuthenticationProperties { RedirectUri = "/" },
+                new[] { OpenIddictServerAspNetCoreDefaults.AuthenticationScheme });
+        });
     }
 
     // Résout les ressources (audiences) associées aux scopes demandés.
