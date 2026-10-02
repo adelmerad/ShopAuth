@@ -12,8 +12,16 @@ public static class DbSeeder
     {
         var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
         var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
+        var config = services.GetRequiredService<IConfiguration>();
 
         const string email = "test@entreprise.com";
+
+        // Mot de passe du compte admin : lu depuis la config (comme
+        // ConnectionStrings), jamais codé en dur dans le code source commité.
+        // Valeur réelle à placer dans appsettings.json local (gitignored) ou en
+        // variable d'environnement ; le repli ci-dessous ne sert qu'au dev local
+        // quand personne n'a encore configuré de valeur.
+        var adminPassword = config["Bootstrap:AdminPassword"] ?? "MotDePasseInitial123!";
 
         // Le rôle "admin" doit exister avant qu'on essaie de l'assigner.
         if (!await roleManager.RoleExistsAsync("admin"))
@@ -29,7 +37,7 @@ public static class DbSeeder
                 MustChangePassword = true
             };
 
-            var result = await userManager.CreateAsync(user, "MotDePasseInitial123!");
+            var result = await userManager.CreateAsync(user, adminPassword);
 
             if (!result.Succeeded)
             {
