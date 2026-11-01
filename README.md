@@ -1,188 +1,202 @@
-# ShopAuth
+# SSO Platform
 
-Serveur d'authentification **OAuth2 / OpenID Connect** construit avec ASP.NET Core 8 et **OpenIddict** — projet d'apprentissage réalisé pendant mon stage chez Mobilis (encadrant : M. Ibrahim).
+> **Serveur SSO commun du projet.** Réalisé par [Adel Merad](https://github.com/adelmerad) et [Abdelhadi Deffous](https://github.com/ABaDi99) pendant leur stage chez Mobilis. Le code vient du dépôt [ABaDi99/Sso2](https://github.com/ABaDi99/Sso2), où se trouve son historique complet.
+>
+> L'application [ShopWebApp](https://github.com/adelmerad/ShopWebApp) se connecte à ce serveur. L'ancienne version de ShopAuth reste disponible avec le tag [`ancienne-version`](https://github.com/adelmerad/ShopAuth/tree/ancienne-version).
 
-Parti d'une API JWT « maison » (aujourd'hui entièrement retirée), le projet a évolué en véritable serveur d'autorisation standard : il délivre des access tokens JWT signés, des id tokens et des refresh tokens (avec rotation), que **ShopWebApp** utilise pour authentifier ses utilisateurs. ASP.NET Core Identity gère les utilisateurs (hachage, verrouillage de compte, rôles).
+Système d'authentification unique (SSO) basé sur OAuth2/OIDC, composé de
+quatre projets :
 
-Le serveur gère aussi les rôles par application, les suspensions de comptes et la déconnexion SSO, et fournit un panneau d'administration React.
+| Projet | Rôle | Port par défaut |
+|---|---|---|
+| `SsoServer` | Serveur d'identité (OpenIddict + ASP.NET Identity) | 5171 |
+| `ClientApi` | BFF (Backend For Frontend) OAuth2 | 5200 |
+| `sso-client` | Application de démonstration (React) | 5173 |
+| `sso-admin` | Interface d'administration (React) | 5174 (dev) ou servie par SsoServer sous `/admin/` |
 
-## Stack
+Flow : `sso-client` → `ClientApi` (garde le `client_secret` et les jetons)
+→ `SsoServer` (authentification, émission des jetons). PKCE obligatoire,
+rotation des refresh tokens, rôles globaux + rôles par application.
 
-- ASP.NET Core 8 (Minimal API)
-- OpenIddict 5 — serveur OAuth2 / OpenID Connect + validation
-- ASP.NET Core Identity (`ApplicationUser` personnalisé)
-- Entity Framework Core 8 — Code-First + Migrations
-- SQL Server 2022 (Docker)
-- Swagger / OpenAPI (bouton Authorize câblé sur les flows *authorization code + PKCE* et *password*)
-- React + TypeScript + Vite — panneau d'administration (`admin-ui/`)
+---
 
-## Renforcements de sécurité
+## 1. Prérequis
 
-- **Anti-énumération par timing** : pour un email inconnu, `/connect/token` et `/login` exécutent quand même une vérification de hash « à vide » → temps de réponse identique à un mot de passe erroné.
-- **Verrouillage de compte** : 5 échecs → compte bloqué 15 min (via `SignInManager`). Actif sur `/connect/token` et `/login`.
-- **Rotation stricte des refresh tokens** : un refresh token consommé est immédiatement rejeté s'il est rejoué (leeway = 0).
-- **Révocation au changement de mot de passe** : changer son mot de passe invalide tous les refresh tokens existants.
-- **Statut du compte revérifié** : la suspension est contrôlée au login, sur `/connect/authorize` et sur `/connect/token` (y compris au refresh). Un cookie ou un refresh token déjà valide ne suffit donc pas à garder l'accès.
-- **API d'administration protégée** : rôle `admin` obligatoire, statut du compte revérifié à chaque appel (`RequireActiveAccountFilter`) et en-tête `X-Sso-Admin` exigé contre le CSRF (`RequireAdminHeaderFilter`), en plus du cookie `SameSite=Lax`.
+- **.NET SDK 8.0**
+- **Node.js 18+** (et npm)
+- **SQL Server** accessible (une des options suivantes) :
+  - SQL Server Express / Developer déjà installé localement, ou
+  - Docker : `docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=<mot-de-passe-sql>" -p 1433:1433 -d mcr.microsoft.com/mssql/server:2022-latest`
+- `dotnet-ef` (outil CLI) : `dotnet tool install --global dotnet-ef` si vous ne l'avez pas déjà
 
-## Rôles par application
+---
 
-Un utilisateur peut avoir deux types de rôles :
+## 2. Cloner et configurer SsoServer
 
-- **Rôle global** (ASP.NET Identity) : valable pour toutes les applications.
-- **Rôle applicatif** (table `UserApplicationRoles`) : valable uniquement pour un `client_id`.
-
-Le claim `role` du token contient l'union des deux pour le client qui demande le token. Par exemple, `employe@entreprise.com` n'a aucun rôle global, mais reçoit `employe` sur `shopwebapp-bff`.
-
-## Suspensions
-
-Une suspension (table `UserSuspensions`) est une période avec une date de début, une date de fin, un motif et une note facultative. Le compte est bloqué uniquement pendant cette période.
-
-Sont refusés : les périodes qui se chevauchent pour un même compte, se suspendre soi-même, et suspendre le dernier administrateur actif.
-
-Le verrouillage temporaire et la désactivation par un administrateur sont distincts : ils utilisent tous deux `LockoutEnd`, mais la désactivation le fixe à `DateTimeOffset.MaxValue` et l'utilisateur reçoit un message différent.
-
-## Structure du projet
-
-```
-Entities/     ApplicationUser (+ MustChangePassword), UserApplicationRole, UserSuspension
-Data/         ApplicationDbContext (Identity + OpenIddict), DbSeeder, AccountStatusChecker
-Endpoints/    ConnectEndpoints (OAuth2/OIDC, /login)
-              AccountEndpoints (session du panneau d'admin)
-              UserEndpoints, RoleEndpoints, ClientEndpoints (API d'administration)
-              RequireActiveAccountFilter, RequireAdminHeaderFilter
-Migrations/   Migrations EF Core (Identity + OpenIddict)
-admin-ui/     Panneau d'administration React (compilé vers wwwroot/admin, non versionné)
+```bash
+git clone https://github.com/adelmerad/ShopAuth.git
+cd ShopAuth/SsoServer
 ```
 
-## Prérequis
+### 2.1 Secrets (jamais commités, à définir localement)
 
-- [SDK .NET 8](https://dotnet.microsoft.com/download/dotnet/8.0)
-- [Node.js](https://nodejs.org/) (uniquement pour le panneau d'administration)
-- SQL Server accessible sur `localhost,1433`, par exemple via Docker :
-
-```powershell
-docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=YOUR_PASSWORD" -p 1433:1433 --name sqlserver -d mcr.microsoft.com/mssql/server:2022-latest
+```bash
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=localhost,1433;Database=SsoServerDb;User Id=sa;Password=<mot-de-passe-sql>;TrustServerCertificate=True"
+dotnet user-secrets set "Bootstrap:AdminPassword" "<choisissez-un-mot-de-passe-fort>"
 ```
 
-## Installation
+Remplacez `<mot-de-passe-sql>` par celui de votre instance SQL Server, et
+`<choisissez-un-mot-de-passe-fort>` par un mot de passe que vous seul
+connaissez — ce sera celui du **premier compte administrateur**, créé
+automatiquement au démarrage avec l'email défini dans
+`appsettings.Development.json` (`admin@entreprise.com` par défaut). Ces
+deux valeurs vivent dans le magasin `user-secrets` de votre machine,
+jamais dans un fichier commité.
 
-1. Restaurer les packages :
+### 2.2 Adapter l'hôte réseau
 
-```powershell
-dotnet restore
+Par défaut (rien à faire), tout tourne sur `localhost`. Pour tester avec
+un binôme sur le même réseau local, définissez votre IP via `user-secrets` :
+
+```bash
+dotnet user-secrets set "Network:Host" "<votre-ip-locale>"
+dotnet user-secrets set "Network:BinomeHost" "<ip-du-binome>"
 ```
 
-2. Créer `appsettings.json` à partir du modèle fourni, puis renseigner la chaîne de connexion et la section `Bootstrap` (obligatoire, l'application ne démarre pas sans) :
+`<votre-ip-locale>` s'obtient avec `ipconfig` (adresse IPv4, ex.
+`192.168.1.72`). `Network:BinomeHost` est optionnel : renseignez-le si
+vous voulez qu'un troisième client OAuth (`app-binome`) soit créé
+automatiquement pour la machine de l'autre personne.
 
-```powershell
-Copy-Item appsettings.Example.json appsettings.json
-```
+Cette valeur sert à préconfigurer les `redirect_uri` des applications
+OAuth de démonstration (voir `Data/DevClientSeeder.cs`) — si elle ne
+correspond pas à l'adresse réellement utilisée dans le navigateur, la
+connexion échouera avec une erreur `redirect_uri invalide`.
 
-3. Appliquer les migrations puis lancer :
+### 2.3 Créer la base de données
 
-```powershell
+```bash
 dotnet ef database update
+```
+
+Ça crée le schéma (Identity + OpenIddict). Au premier démarrage, le
+serveur amorce aussi automatiquement le rôle `Admin`, le compte
+administrateur, les clients OAuth de démonstration et deux comptes de
+test (voir section 6).
+
+### 2.4 Lancer
+
+```bash
 dotnet run
 ```
 
-Swagger est disponible sur `/swagger` en environnement Development.
+Vérifiez que ça écoute bien sur `http://localhost:5171` (ou votre IP).
 
-## Panneau d'administration
+---
 
-Le panneau gère les utilisateurs, les rôles, les suspensions et les clients OpenIddict. Il faut le compiler une première fois, car `wwwroot/admin` n'est pas versionné :
+## 3. Configurer et lancer ClientApi
 
-```powershell
-cd admin-ui
+```bash
+cd ../ClientApi
+```
+
+Comme pour SsoServer, ces valeurs se définissent en local via
+`user-secrets`, jamais dans `appsettings.json` (qui reste vide dans le
+dépôt). Avec les valeurs par défaut du seeder de développement, sur la
+même machine que SsoServer :
+
+```bash
+dotnet user-secrets set "Sso:Authority" "http://localhost:5171"
+dotnet user-secrets set "Sso:ClientId" "mon-app-cliente"
+dotnet user-secrets set "Sso:ClientSecret" "dev-only-demo-client"
+dotnet user-secrets set "Sso:RedirectUri" "http://localhost:5200/auth/callback"
+dotnet user-secrets set "Frontend:Url" "http://localhost:5173"
+```
+
+Remplacez `localhost` par l'IP choisie à l'étape 2.2 si vous testez avec
+un binôme sur le réseau local. Puis :
+
+```bash
+dotnet run
+```
+
+Écoute sur `http://localhost:5200`.
+
+---
+
+## 4. Configurer et lancer sso-client
+
+```bash
+cd ../sso-client
 npm install
-npm run build
+cp .env.example .env
 ```
 
-Il est ensuite servi par ShopAuth sur `http://localhost:5124/admin/`. La connexion demande un compte ayant le rôle `admin`.
+`.env` pointe déjà vers `http://localhost:5200` par défaut — à adapter
+uniquement si vous avez changé le port de ClientApi.
 
-Pour le développement, `npm run dev` lance Vite sur `http://localhost:5174/admin/`, avec un proxy vers ShopAuth.
-
-## Utilisateur & clients seedés
-
-Au démarrage, `DbSeeder` crée (idempotent) :
-
-- **Utilisateur de test** : `test@entreprise.com`, mot de passe `Bootstrap:AdminPassword` (`MustChangePassword: true`), rôle `admin`
-- **Utilisateur de test** : `employe@entreprise.com`, mot de passe `Bootstrap:EmployePassword`, rôle applicatif `employe` sur `shopwebapp-bff`
-- **Client OpenIddict** public `postman` (flows *authorization code* + PKCE, *password*, *refresh_token*)
-- **Client OpenIddict** confidentiel `shopwebapp-bff` (secret `Bootstrap:ShopWebAppClientSecret` + PKCE, dédié à ShopWebApp)
-
-## Obtenir un token (OAuth2 *password grant*)
-
-`POST /connect/token` en `application/x-www-form-urlencoded` :
-
-```
-grant_type=password
-username=test@entreprise.com
-password=<Bootstrap:AdminPassword>
-scope=openid email profile offline_access
-client_id=postman
+```bash
+npm run dev
 ```
 
-Réponse : `access_token` (JWT signé RS256), `id_token`, `refresh_token`.
+Écoute sur `http://localhost:5173`.
 
-Le plus simple : **Swagger → Authorize 🔒** → saisir username/password → cocher les scopes voulus.
+---
 
-## Login interactif (Authorization Code + PKCE)
+## 5. Configurer et lancer sso-admin
 
-Le vrai flow SSO : dans Swagger, **Authorize → `authorization_code`** redirige le navigateur vers la page `/login` du serveur (l'app cliente ne voit **jamais** le mot de passe), puis renvoie un `code` échangé — avec **PKCE** — contre les tokens. C'est le mécanisme de « Se connecter avec Google/Microsoft ».
+```bash
+cd ../sso-admin
+npm install
+npm run dev
+```
 
-## Endpoints principaux
+Écoute sur `http://localhost:5174/admin/`, avec un proxy Vite qui
+redirige vers `http://localhost:5171` (SsoServer). Aucune configuration
+supplémentaire nécessaire si SsoServer tourne en local sur le port par
+défaut.
 
-| Méthode | Route | Rôle |
+Pour un accès depuis une autre machine du réseau, relancez avec
+`npm run dev -- --host` et utilisez l'adresse réseau affichée dans la
+console.
+
+---
+
+## 6. Comptes de test
+
+Créés automatiquement au premier démarrage de SsoServer (voir
+`Data/BootstrapSeeder.cs` et `Data/DevClientSeeder.cs`) :
+
+| Email | Mot de passe | Rôle |
 |---|---|---|
-| POST | `/connect/token` | Émission des tokens (*authorization_code*, *password*, *refresh_token*) |
-| GET | `/connect/authorize` | Autorisation interactive (Authorization Code + PKCE) |
-| GET/POST | `/login` | Page de connexion (formulaire) |
-| GET/POST | `/connect/logout` | Déconnexion SSO initiée par le client, puis retour vers `post_logout_redirect_uri` |
-| GET | `/.well-known/openid-configuration` | Découverte OIDC |
-| GET | `/.well-known/jwks` | Clés publiques de signature |
-| POST | `/api/account/login`, `/api/account/logout` | Connexion et déconnexion du panneau d'admin |
-| GET | `/api/account/session` | Session courante du panneau d'admin |
-| GET | `/admin/{*path}` | Panneau d'administration compilé |
+| `admin@entreprise.com` | celui défini via `Bootstrap:AdminPassword` (étape 2.1) | Admin |
+| `employe@entreprise.com` | `MotDePasse123!` | Employe |
+| `salim3@entreprise.com` | `MotDePasse123!` | Employe |
 
-### API d'administration
+---
 
-Ces routes exigent le rôle `admin` et l'en-tête `X-Sso-Admin`.
+## 7. Tester le scénario complet
 
-| Méthode | Route | Rôle |
-|---|---|---|
-| GET/POST | `/admin/api/users` | Lister, créer des utilisateurs |
-| DELETE | `/admin/api/users/{id}` | Supprimer un utilisateur |
-| PUT | `/admin/api/users/{id}/roles` | Définir les rôles globaux |
-| POST | `/admin/api/users/{id}/app-roles` | Ajouter un rôle applicatif |
-| DELETE | `/admin/api/users/{id}/app-roles/{appRoleId}` | Retirer un rôle applicatif |
-| POST | `/admin/api/users/{id}/reset-password` | Réinitialiser le mot de passe |
-| POST | `/admin/api/users/{id}/disable`, `/enable` | Désactiver, réactiver un compte |
-| POST | `/admin/api/users/{id}/suspensions` | Créer une suspension |
-| DELETE | `/admin/api/users/{id}/suspensions/{suspensionId}` | Lever une suspension |
-| GET/POST | `/admin/api/roles` | Lister, créer des rôles |
-| DELETE | `/admin/api/roles/{id}` | Supprimer un rôle |
-| GET/POST | `/admin/api/clients` | Lister, créer des clients OpenIddict |
-| PUT/DELETE | `/admin/api/clients/{clientId}` | Modifier, supprimer un client |
-| POST | `/admin/api/clients/{clientId}/rotate-secret` | Renouveler le secret d'un client |
+1. Ouvrez `http://localhost:5173` (sso-client), cliquez **Se connecter**
+   → redirigé vers SsoServer → connectez-vous avec `employe@entreprise.com`
+   → redirigé vers le tableau de bord de sso-client.
+2. Ouvrez `http://localhost:5174/admin/` (sso-admin), connectez-vous avec
+   `admin@entreprise.com` → gérez les comptes, applications et rôles.
+3. Dans sso-admin, onglet **Comptes**, assignez un rôle applicatif à
+   `employe@entreprise.com` pour l'application `mon-app-cliente`, puis
+   reconnectez-vous sur sso-client pour vérifier qu'il apparaît.
 
-## Notes dev
+---
 
-- **Clés éphémères** : régénérées à chaque redémarrage → les tokens émis avant deviennent invalides. En prod : de vrais certificats persistants. ShopWebApp met les clés JWKS en cache : après un redémarrage de ShopAuth, redémarrer aussi ShopWebApp.
-- Access token **non chiffré** (JWT lisible) pour faciliter le debug et la validation par les serveurs de ressources.
-- Le flag `MustChangePassword` existe encore sur `ApplicationUser` (posé à `true` par le seeder) mais **aucun endpoint ne le consomme actuellement** — resterait à rebrancher si un flow de changement de mot de passe est réintroduit.
+## 8. Dépannage courant
 
-## Roadmap
-
-- [x] Renforcements sécurité (timing, lockout, rotation, révocation)
-- [x] Serveur OpenIddict — *password grant* (Phase 1)
-- [x] Authorization Code + PKCE avec page de login (Phase 2) — consentement auto (implicite)
-- [x] Retrait complet de l'ancien système custom `/api/auth/*` (`AuthEndpoints`, `TokenService`, `AuthService`, table `RefreshTokens`, section `Jwt`)
-- [x] Claim `role` dans les tokens (rôle `admin` seedé)
-- [x] Client confidentiel dédié `shopwebapp-bff` (au lieu de partager `postman` avec Swagger)
-- [x] Rôles par application (`UserApplicationRoles`)
-- [x] Suspensions de comptes par période (`UserSuspensions`)
-- [x] API d'administration et panneau React (`admin-ui`)
-- [x] Déconnexion initiée par le client (`/connect/logout`)
-- [ ] Écran de consentement explicite + protection anti-CSRF sur `/login`
-- [ ] Register
+- **`redirect_uri invalide` en se connectant** : `Network:Host`
+  (SsoServer) et `Sso:RedirectUri`/`Sso:Authority` (ClientApi) doivent
+  pointer vers la même adresse que celle tapée dans le navigateur.
+- **Erreur de connexion SQL Server** : vérifiez que le service tourne
+  (`docker ps` si vous utilisez Docker) et que le mot de passe dans
+  `ConnectionStrings:DefaultConnection` correspond.
+- **`dotnet ef` introuvable** : `dotnet tool install --global dotnet-ef`,
+  puis relancez un nouveau terminal.
+- **Page blanche sur `/admin/`** : assurez-vous d'accéder à l'URL avec le
+  `/admin/` final, pas juste la racine.
