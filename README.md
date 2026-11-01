@@ -35,7 +35,7 @@ Migrations/   Migrations EF Core (Identity + OpenIddict)
 - SQL Server accessible sur `localhost,1433`, par exemple via Docker :
 
 ```powershell
-docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=VotreMotDePasse123!" -p 1433:1433 --name sqlserver -d mcr.microsoft.com/mssql/server:2022-latest
+docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=YOUR_PASSWORD" -p 1433:1433 --name sqlserver -d mcr.microsoft.com/mssql/server:2022-latest
 ```
 
 ## Installation
@@ -46,7 +46,7 @@ docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=VotreMotDePasse123!" -p 1433
 dotnet restore
 ```
 
-2. Créer `appsettings.json` à partir du modèle fourni, puis renseigner la chaîne de connexion :
+2. Créer `appsettings.json` à partir du modèle fourni, puis renseigner la chaîne de connexion et la section `Bootstrap` (obligatoire, l'application ne démarre pas sans) :
 
 ```powershell
 Copy-Item appsettings.Example.json appsettings.json
@@ -65,9 +65,10 @@ Swagger est disponible sur `/swagger` en environnement Development.
 
 Au démarrage, `DbSeeder` crée (idempotent) :
 
-- **Utilisateur de test** : `test@entreprise.com` / `MotDePasseInitial123!` (`MustChangePassword: true`), rôle `admin`
+- **Utilisateur de test** : `test@entreprise.com`, mot de passe `Bootstrap:AdminPassword` (`MustChangePassword: true`), rôle `admin`
+- **Utilisateur de test** : `employe@entreprise.com`, mot de passe `Bootstrap:EmployePassword`, rôle applicatif `employe` sur `shopwebapp-bff`
 - **Client OpenIddict** public `postman` (flows *authorization code* + PKCE, *password*, *refresh_token*)
-- **Client OpenIddict** confidentiel `shopwebapp-bff` (secret + PKCE, dédié à ShopWebApp)
+- **Client OpenIddict** confidentiel `shopwebapp-bff` (secret `Bootstrap:ShopWebAppClientSecret` + PKCE, dédié à ShopWebApp)
 
 ## Obtenir un token (OAuth2 *password grant*)
 
@@ -76,7 +77,7 @@ Au démarrage, `DbSeeder` crée (idempotent) :
 ```
 grant_type=password
 username=test@entreprise.com
-password=MotDePasseInitial123!
+password=<Bootstrap:AdminPassword>
 scope=openid email profile offline_access
 client_id=postman
 ```

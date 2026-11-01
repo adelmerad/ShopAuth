@@ -8,6 +8,13 @@ namespace ShopAuth.Data;
 
 public static class DbSeeder
 {
+    // Pas de valeur de repli : un secret par defaut dans le code finirait sur GitHub.
+    private static string RequireSetting(IConfiguration config, string key) =>
+        !string.IsNullOrWhiteSpace(config[key])
+            ? config[key]!
+            : throw new InvalidOperationException(
+                $"Configuration manquante : {key}. Voir appsettings.Example.json.");
+
     public static async Task SeedAsync(IServiceProvider services)
     {
         var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
@@ -16,12 +23,7 @@ public static class DbSeeder
 
         const string email = "test@entreprise.com";
 
-        // Mot de passe du compte admin : lu depuis la config (comme
-        // ConnectionStrings), jamais codé en dur dans le code source commité.
-        // Valeur réelle à placer dans appsettings.json local (gitignored) ou en
-        // variable d'environnement ; le repli ci-dessous ne sert qu'au dev local
-        // quand personne n'a encore configuré de valeur.
-        var adminPassword = config["Bootstrap:AdminPassword"] ?? "MotDePasseInitial123!";
+        var adminPassword = RequireSetting(config, "Bootstrap:AdminPassword");
 
         // Le rôle "admin" doit exister avant qu'on essaie de l'assigner.
         if (!await roleManager.RoleExistsAsync("admin"))
@@ -62,7 +64,7 @@ public static class DbSeeder
         if (employe is null)
         {
             employe = new ApplicationUser { UserName = employeEmail, Email = employeEmail };
-            await userManager.CreateAsync(employe, "MotDePasse123!");
+            await userManager.CreateAsync(employe, RequireSetting(config, "Bootstrap:EmployePassword"));
         }
 
         // Demo du role applicatif : "employe" n'a AUCUN role global, mais peut
@@ -143,13 +145,15 @@ public static class DbSeeder
     {
         var manager = services.GetRequiredService<IOpenIddictApplicationManager>();
 
+        var config = services.GetRequiredService<IConfiguration>();
+
         const string clientId = "shopwebapp-bff";
 
         var descriptor = new OpenIddictApplicationDescriptor
         {
             ClientId = clientId,
             ClientType = ClientTypes.Confidential,
-            ClientSecret = "shopwebapp-secret-dev-only", // dev uniquement, projet d'apprentissage
+            ClientSecret = RequireSetting(config, "Bootstrap:ShopWebAppClientSecret"),
             ConsentType = ConsentTypes.Implicit,
             DisplayName = "ShopWebApp (BFF)",
 
