@@ -1,8 +1,8 @@
 # SSO Platform
 
-> **Serveur SSO commun du projet.** Réalisé par [Adel Merad](https://github.com/adelmerad) et [Abdelhadi Deffous](https://github.com/ABaDi99) pendant leur stage chez Mobilis. Le code vient du dépôt [ABaDi99/Sso2](https://github.com/ABaDi99/Sso2), où se trouve son historique complet.
+> **Serveur SSO commun du projet.** Réalisé par Adel Merad et Abdelhadi Deffous pendant leur stage chez Mobilis.
 >
-> L'application [ShopWebApp](https://github.com/adelmerad/ShopWebApp) se connecte à ce serveur. L'ancienne version de ShopAuth reste disponible avec le tag [`ancienne-version`](https://github.com/adelmerad/ShopAuth/tree/ancienne-version).
+> L'application ShopWebApp se connecte à ce serveur. L'ancienne version de ShopAuth reste disponible avec le tag `ancienne-version`.
 
 Système d'authentification unique (SSO) basé sur OAuth2/OIDC, composé de
 quatre projets :
